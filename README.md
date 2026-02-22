@@ -26,8 +26,8 @@ ZenMind 是一个面向 AI Agent 工作流的开源项目集合。
 |---|---|---|---|---|
 | 移动端 App | [zenmind-react-app](https://github.com/linlay/zenmind-react-app) | 移动端聊天、终端、智能体与用户设置。 | Expo + React Native + TypeScript | Android APK / Expo 构建产物 |
 | 统一认证与管理端 | [zenmind-app-server](https://github.com/linlay/zenmind-app-server) | 认证中心、设备认证、消息盒子与管理端 API。 | Spring Boot + Vite + Docker Compose | `release/` 包（backend JAR + frontend dist + compose） |
-| 终端 Web 客户端 (`pty-webclient`) | [term-webclient](https://github.com/linlay/term-webclient) | 多标签终端（本地 PTY + SSH），支持断线恢复。 | Spring Boot + React + xterm.js | `release/` 包（`app.jar`、`dist`、`start/stop` 脚本） |
-| Agent 服务端 (`agw-springai-agent`) | [agent-platform](https://github.com/linlay/agent-platform) | Agent 编排与 SSE 事件流接口。 | Spring Boot + Spring AI | Fat JAR / Docker 镜像 |
+| 终端 Web 客户端 (`term-webclient`) | [term-webclient](https://github.com/linlay/term-webclient) | 多标签终端（本地 PTY + SSH），支持断线恢复。 | Spring Boot + React + xterm.js | `release/` 包（`app.jar`、`dist`、`start/stop` 脚本） |
+| Agent 服务端 (`agent-platform`) | [agent-platform](https://github.com/linlay/agent-platform) | Agent 编排与 SSE 事件流接口。 | Spring Boot + Spring AI | Fat JAR / Docker 镜像 |
 
 ## 系统关系（简化）
 

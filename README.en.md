@@ -26,8 +26,8 @@ This repository does not contain business code and mainly manages documentation 
 |---|---|---|---|---|
 | Mobile App | [zenmind-react-app](https://github.com/linlay/zenmind-react-app) | Mobile chat, terminal, agent, and user settings. | Expo + React Native + TypeScript | Android APK / Expo build artifacts |
 | Auth and Admin | [zenmind-app-server](https://github.com/linlay/zenmind-app-server) | Auth center, device auth, inbox, and admin APIs. | Spring Boot + Vite + Docker Compose | `release/` package (backend JAR + frontend dist + compose files) |
-| Terminal Web Client (`pty-webclient`) | [term-webclient](https://github.com/linlay/term-webclient) | Multi-tab terminal (local PTY + SSH) with session recovery. | Spring Boot + React + xterm.js | `release/` package (`app.jar`, `dist`, `start/stop` scripts) |
-| Agent Service (`agw-springai-agent`) | [agent-platform](https://github.com/linlay/agent-platform) | Agent orchestration and SSE event streaming APIs. | Spring Boot + Spring AI | Fat JAR / Docker image |
+| Terminal Web Client (`term-webclient`) | [term-webclient](https://github.com/linlay/term-webclient) | Multi-tab terminal (local PTY + SSH) with session recovery. | Spring Boot + React + xterm.js | `release/` package (`app.jar`, `dist`, `start/stop` scripts) |
+| Agent Service (`agent-platform`) | [agent-platform](https://github.com/linlay/agent-platform) | Agent orchestration and SSE event streaming APIs. | Spring Boot + Spring AI | Fat JAR / Docker image |
 
 ## System Relationship (Simplified)
 
