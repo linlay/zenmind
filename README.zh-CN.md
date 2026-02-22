@@ -4,7 +4,7 @@
 [![Repository Type](https://img.shields.io/badge/repo-hub%20portal-blue)](https://github.com/linlay/zenmind)
 [![Release Status](https://img.shields.io/badge/releases-planned-lightgrey)](https://github.com/linlay/zenmind/releases)
 
-[English](README.en.md)
+[默认 (中文)](README.md) | [简体中文独立页](README.zh-CN.md) | [English](README.en.md)
 
 ZenMind 是一个面向 AI Agent 工作流的开源项目集合。
 
