@@ -9,11 +9,13 @@ set -euo pipefail
 # - Tests and reloads/starts nginx using THIS nginx.conf explicitly
 #
 # Optional env:
-#   AUTO_INSTALL=1            # install nginx via brew if nginx missing
+#   AUTO_INSTALL=1            # auto-install nginx on macOS (Homebrew only)
 #   DOMAIN=app.zenmind.cc      # if you want server_name; default "_"
 #   LISTEN_IP=127.0.0.1
 #   LISTEN_PORT=11945
-#   BREW_PREFIX=/opt/homebrew # override if needed
+#   OS_NAME=darwin|linux       # optional override
+#   BREW_PREFIX=/opt/homebrew  # optional (macOS)
+#   NGINX_DIR=/path/to/nginx   # optional override
 # ============================================================
 
 DOMAIN="${DOMAIN:-_}"               # "_" means catch-all, domain not required
@@ -26,6 +28,15 @@ UP_AGENT="${UP_AGENT:-127.0.0.1:11949}"
 UP_TERM="${UP_TERM:-127.0.0.1:11947}"
 
 AUTO_INSTALL="${AUTO_INSTALL:-0}"
+OS_NAME="${OS_NAME:-}"
+
+detect_os_name() {
+  case "$(uname -s)" in
+    Darwin) echo "darwin" ;;
+    Linux) echo "linux" ;;
+    *) echo "unknown" ;;
+  esac
+}
 
 detect_brew_prefix() {
   if command -v brew >/dev/null 2>&1; then
@@ -37,13 +48,75 @@ detect_brew_prefix() {
   echo ""
 }
 
-BREW_PREFIX="${BREW_PREFIX:-$(detect_brew_prefix)}"
-if [[ -z "${BREW_PREFIX}" ]]; then
-  echo "ERROR: Cannot determine Homebrew prefix. Set BREW_PREFIX=/opt/homebrew (or /usr/local) and retry." >&2
-  exit 1
+default_nginx_dir() {
+  case "${OS_NAME}" in
+    darwin)
+      if [[ -n "${BREW_PREFIX}" ]]; then
+        echo "${BREW_PREFIX}/etc/nginx"
+        return 0
+      fi
+      if [[ -d /opt/homebrew/etc/nginx ]]; then echo "/opt/homebrew/etc/nginx"; return 0; fi
+      if [[ -d /usr/local/etc/nginx ]]; then echo "/usr/local/etc/nginx"; return 0; fi
+      echo "/usr/local/etc/nginx"
+      ;;
+    linux)
+      if [[ -d /etc/nginx ]]; then echo "/etc/nginx"; return 0; fi
+      if [[ -d /usr/local/etc/nginx ]]; then echo "/usr/local/etc/nginx"; return 0; fi
+      echo "/etc/nginx"
+      ;;
+    *)
+      echo ""
+      ;;
+  esac
+}
+
+default_log_dir() {
+  case "${OS_NAME}" in
+    darwin)
+      if [[ -n "${BREW_PREFIX}" ]]; then
+        echo "${BREW_PREFIX}/var/log/nginx"
+      else
+        echo "/usr/local/var/log/nginx"
+      fi
+      ;;
+    linux)
+      echo "/var/log/nginx"
+      ;;
+    *)
+      echo ""
+      ;;
+  esac
+}
+
+default_run_dir() {
+  case "${OS_NAME}" in
+    darwin)
+      if [[ -n "${BREW_PREFIX}" ]]; then
+        echo "${BREW_PREFIX}/var/run"
+      else
+        echo "/usr/local/var/run"
+      fi
+      ;;
+    linux)
+      echo "/var/run"
+      ;;
+    *)
+      echo ""
+      ;;
+  esac
+}
+
+if [[ -z "${OS_NAME}" ]]; then
+  OS_NAME="$(detect_os_name)"
 fi
 
-NGINX_DIR="${NGINX_DIR:-${BREW_PREFIX}/etc/nginx}"
+BREW_PREFIX="${BREW_PREFIX:-$(detect_brew_prefix)}"
+
+NGINX_DIR="${NGINX_DIR:-$(default_nginx_dir)}"
+if [[ -z "${NGINX_DIR}" ]]; then
+  echo "ERROR: Unsupported OS. Please set NGINX_DIR/NGINX_CONF manually." >&2
+  exit 1
+fi
 NGINX_CONF="${NGINX_CONF:-${NGINX_DIR}/nginx.conf}"
 
 SITES_AVAILABLE="${SITES_AVAILABLE:-${NGINX_DIR}/sites-available}"
@@ -52,8 +125,8 @@ SITE_NAME="${SITE_NAME:-${LISTEN_PORT}.conf}"
 SITE_CONF_PATH="${SITE_CONF_PATH:-${SITES_AVAILABLE}/${SITE_NAME}}"
 SITE_LINK_PATH="${SITE_LINK_PATH:-${SITES_ENABLED}/${SITE_NAME}}"
 
-LOG_DIR="${LOG_DIR:-${BREW_PREFIX}/var/log/nginx}"
-RUN_DIR="${RUN_DIR:-${BREW_PREFIX}/var/run}"
+LOG_DIR="${LOG_DIR:-$(default_log_dir)}"
+RUN_DIR="${RUN_DIR:-$(default_run_dir)}"
 
 backup_file_if_exists() {
   local f="$1"
@@ -72,8 +145,13 @@ ensure_nginx_exists() {
   fi
 
   if [[ "${AUTO_INSTALL}" == "1" ]]; then
+    if [[ "${OS_NAME}" != "darwin" ]]; then
+      echo "ERROR: AUTO_INSTALL=1 currently supports macOS Homebrew only." >&2
+      echo "Install nginx using your distro package manager, then rerun this script."
+      exit 1
+    fi
     if ! command -v brew >/dev/null 2>&1; then
-      echo "ERROR: nginx missing and brew not found. Install nginx first." >&2
+      echo "ERROR: nginx missing and brew not found. Install Homebrew or install nginx manually." >&2
       exit 1
     fi
     echo "nginx not found in PATH. Installing via Homebrew because AUTO_INSTALL=1..."
@@ -177,56 +255,8 @@ server {
         proxy_pass http://admin_11950;
     }
 
-    # Agent (11949) - SSE/streaming endpoints (exact match style)
-    location = /api/agents {
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        add_header X-Accel-Buffering no;
-        proxy_pass http://agent_11949;
-    }
-    location = /api/agent {
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        add_header X-Accel-Buffering no;
-        proxy_pass http://agent_11949;
-    }
-    location = /api/chats {
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        add_header X-Accel-Buffering no;
-        proxy_pass http://agent_11949;
-    }
-    location = /api/chat {
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        add_header X-Accel-Buffering no;
-        proxy_pass http://agent_11949;
-    }
-    location = /api/query {
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        add_header X-Accel-Buffering no;
-        proxy_pass http://agent_11949;
-    }
-    location = /api/submit {
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        add_header X-Accel-Buffering no;
-        proxy_pass http://agent_11949;
-    }
-    location = /api/viewport {
+    # Agent (11949) - unified API prefix, includes /api/ap/data
+    location ^~ /api/ap/ {
         proxy_buffering off;
         proxy_cache off;
         proxy_read_timeout 3600s;
@@ -303,6 +333,9 @@ Notes:
 - This nginx listens ONLY on ${LISTEN_IP}:${LISTEN_PORT}. No 80/443 listeners are created by this script.
 - server_name is set to: ${DOMAIN}
   (Use DOMAIN=app.zenmind.cc if you want strict host matching; "_" is fine for tunnel origin.)
+- Start nginx:   ./scripts/start-nginx.sh
+- Stop nginx:    ./scripts/stop-nginx.sh
+- Restart nginx: ./scripts/restart-nginx.sh
 EOF
 }
 
