@@ -38,4 +38,4 @@ echo "$NEW_PID" > "$PID_FILE"
 
 echo "已后台启动 cloudflared (PID: $NEW_PID)"
 echo "日志文件: $LOG_FILE"
-echo "停止命令: ./scripts/stop-cf-tunnel.sh"
+echo "停止命令: ./scripts/mac/stop-cf-tunnel.sh"

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-label="ZenMind overview diagram">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f4fbff"/>
+      <stop offset="100%" stop-color="#eef7f1"/>
+    </linearGradient>
+    <style>
+      .title{font:700 44px 'Segoe UI',Arial,sans-serif;fill:#1b2a36}
+      .subtitle{font:500 20px 'Segoe UI',Arial,sans-serif;fill:#28404f}
+      .node{fill:#ffffff;stroke:#7aa1b8;stroke-width:2}
+      .nodeText{font:600 18px 'Segoe UI',Arial,sans-serif;fill:#1f3340}
+      .desc{font:400 14px 'Segoe UI',Arial,sans-serif;fill:#486173}
+      .link{stroke:#4a7894;stroke-width:2.5;fill:none;marker-end:url(#arrow)}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#4a7894"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="640" fill="url(#bg)"/>
+  <text x="70" y="88" class="title">ZenMind</text>
+  <text x="70" y="122" class="subtitle">Personal Computer Agent Proxy + Terminal Coding CLI</text>
+
+  <rect x="70" y="190" rx="14" ry="14" width="240" height="120" class="node"/>
+  <text x="95" y="235" class="nodeText">Mobile App</text>
+  <text x="95" y="260" class="desc">zenmind-react-app</text>
+
+  <rect x="410" y="150" rx="14" ry="14" width="320" height="120" class="node"/>
+  <text x="435" y="195" class="nodeText">App Server</text>
+  <text x="435" y="220" class="desc">zenmind-app-server</text>
+
+  <rect x="410" y="320" rx="14" ry="14" width="320" height="120" class="node"/>
+  <text x="435" y="365" class="nodeText">Terminal Client</text>
+  <text x="435" y="390" class="desc">term-webclient</text>
+
+  <rect x="850" y="150" rx="14" ry="14" width="280" height="120" class="node"/>
+  <text x="875" y="195" class="nodeText">Agent Runner</text>
+  <text x="875" y="220" class="desc">agent-platform-runner</text>
+
+  <rect x="850" y="320" rx="14" ry="14" width="280" height="120" class="node"/>
+  <text x="875" y="365" class="nodeText">Admin Console</text>
+  <text x="875" y="390" class="desc">agent-platform-admin</text>
+
+  <path class="link" d="M310 250 C350 250, 360 210, 410 210"/>
+  <path class="link" d="M310 250 C350 250, 360 380, 410 380"/>
+  <path class="link" d="M730 210 C770 210, 800 210, 850 210"/>
+  <path class="link" d="M730 380 C770 380, 800 380, 850 380"/>
+
+  <text x="70" y="548" class="subtitle">Planned: Cloud Skills Sandbox + Local Containerized Sandbox</text>
+</svg>

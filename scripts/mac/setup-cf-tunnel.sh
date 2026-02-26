@@ -58,9 +58,9 @@ read -r -p "是否现在启动？(y/N): " START_NOW
 START_NOW="${START_NOW:-N}"
 
 if [[ "$START_NOW" =~ ^[Yy]$ ]]; then
-  echo "启动：./scripts/start-cf-tunnel.sh --foreground"
+  echo "启动：./scripts/mac/start-cf-tunnel.sh --foreground"
   exec "$(cd "$(dirname "$0")" && pwd)/start-cf-tunnel.sh" --foreground
 else
-  echo "手动启动（后台）：./scripts/start-cf-tunnel.sh"
-  echo "停止命令：./scripts/stop-cf-tunnel.sh"
+  echo "手动启动（后台）：./scripts/mac/start-cf-tunnel.sh"
+  echo "停止命令：./scripts/mac/stop-cf-tunnel.sh"
 fi

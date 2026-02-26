@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/nginx-common.sh
+# shellcheck source=scripts/mac/nginx-common.sh
 source "${SCRIPT_DIR}/nginx-common.sh"
 
 resolve_nginx_paths

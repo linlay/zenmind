@@ -47,6 +47,94 @@ flowchart LR
 3. 启动 [agent-platform](https://github.com/linlay/agent-platform) 提供 Agent 接口。
 4. 安装并配置 [zenmind-react-app](https://github.com/linlay/zenmind-react-app)，将后端地址指向你的部署环境。
 
+## 交互式 Setup（macOS）
+
+本仓库提供统一安装脚本，按平台放在 `scripts/mac` 与 `scripts/windows`。
+
+兼容入口仍保留：`setup-mac.sh`、`setup-windows.bat`（内部转发到 `scripts/windows/setup.ps1`）。
+
+脚本目录约定：`scripts/mac` 放 `.sh`，`scripts/windows` 放 `.ps1` / `.bat`。
+
+```bash
+./scripts/mac/setup.sh
+```
+
+```bat
+.\scripts\windows\setup.bat
+```
+
+启动后可通过数字菜单选择：
+
+- `1` 环境检测（安装/版本/运行状态 + 修复命令）
+- `2` 首次安装
+- `3` 更新（重克隆 + 打包 + 移动，不自动重启）
+- `4` 启动（启动前强制 runtime 检测）
+- `5` 停止
+- `0` 退出
+
+也可使用非交互参数模式（便于自动化）：
+
+```bash
+./scripts/mac/setup.sh --action precheck --base-dir /your/workspace
+./scripts/mac/setup.sh --action first-install --base-dir /your/workspace
+./scripts/mac/setup.sh --action update --base-dir /your/workspace
+./scripts/mac/setup.sh --action start --base-dir /your/workspace
+./scripts/mac/setup.sh --action stop --base-dir /your/workspace
+./scripts/mac/setup.sh --action first-install --yes
+```
+
+首次安装会执行：
+
+- 在工作区创建 `source/` 与 `release/` 目录
+- 3 个子仓库拉取到 `source/<repo>`
+- 先执行打包：
+- `term-webclient`: `./release-scripts/mac/package.sh`
+- `zenmind-app-server`: `./release-scripts/mac/package.sh`
+- `agent-platform-runner`: `./release-scripts/mac/package-local.sh`
+- 将各项目打包产物从各自仓库移动到 `release/<repo>`
+- 再复制配置到统一 release 目录（`cp`）：
+- `source/term-webclient/.env.example`（兼容 `source/term-webclient/env.example`）`-> release/term-webclient/.env`
+- `source/term-webclient/application.example.yml -> release/term-webclient/application.yml`
+- `source/zenmind-app-server/.env.example -> release/zenmind-app-server/.env`
+- `source/agent-platform-runner/application.example.yml -> release/agent-platform-runner/application.yml`
+- bcrypt 密码哈希写入 release env：
+- `release/term-webclient/.env`
+- `release/zenmind-app-server/.env`
+- 不再在首次安装中执行环境检查（请先执行 `precheck`）
+
+更新会执行：
+
+- 备份 `release/*` 现有配置
+- 删除旧 `source/<repo>` 后重新 `git clone`
+- 重新打包并将产物移动到 `release/<repo>`
+- 恢复已备份配置，并补齐缺失的 example 配置
+
+启动会执行：
+
+- 启动前运行 `./scripts/mac/check-environment.sh --mode runtime`
+- runtime 不满足时直接失败，不继续启动流程
+
+## FAQ 与故障排查
+
+- Q: 为什么首次安装没有环境错误提示？
+- A: 首次安装已不再做环境检查。请先运行 `./setup-mac.sh --action precheck` 查看缺失项和安装命令。
+
+- Q: 为什么更新不再 `git pull`？
+- A: 默认策略改为 `clone + package + move`，确保 `source/` 与 `release/` 产物干净一致。
+
+- Q: 为什么配置文件被覆盖了？
+- A: 首次安装默认覆盖正式配置，但会先备份为 `*.bak.时间戳`，可手动回滚。
+
+- Q: start 后服务仍不可用？
+- A: 脚本会输出健康检查结果。建议优先检查：
+- release 产物是否已生成（缺失时先执行对应 `release-scripts/mac/package.sh` / `release-scripts/mac/package-local.sh`）
+- Docker Desktop 是否已启动
+- 对应子仓库的启动日志和 PID 文件是否正常
+- 本地端口占用冲突
+
+- Q: 为什么 `precheck` 通过 install 检查，但 `start` 仍失败？
+- A: `start` 依赖 runtime 条件（尤其 Docker daemon）。请先执行 `./scripts/mac/check-environment.sh --mode runtime` 或菜单中的环境检测确认运行态。
+
 ## Release 状态
 
 当前各组件 Release 入口已预留，状态为计划中（Planned），暂未全面开放（Not generally available yet）。

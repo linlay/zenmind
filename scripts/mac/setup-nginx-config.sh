@@ -333,9 +333,9 @@ Notes:
 - This nginx listens ONLY on ${LISTEN_IP}:${LISTEN_PORT}. No 80/443 listeners are created by this script.
 - server_name is set to: ${DOMAIN}
   (Use DOMAIN=app.zenmind.cc if you want strict host matching; "_" is fine for tunnel origin.)
-- Start nginx:   ./scripts/start-nginx.sh
-- Stop nginx:    ./scripts/stop-nginx.sh
-- Restart nginx: ./scripts/restart-nginx.sh
+- Start nginx:   ./scripts/mac/start-nginx.sh
+- Stop nginx:    ./scripts/mac/stop-nginx.sh
+- Restart nginx: ./scripts/mac/restart-nginx.sh
 EOF
 }
 
