@@ -184,16 +184,16 @@ check_install_dependencies() {
     failed=1
   fi
 
-  if command -v docker >/dev/null 2>&1; then
-    add_ok "docker installed"
+  if setup_prepare_docker_alias; then
+    add_ok "docker command available (Docker or podman mapping)"
     if docker compose version >/dev/null 2>&1; then
-      add_ok "docker compose plugin installed ($(docker compose version | head -n 1))"
+      add_ok "docker compose available ($(docker compose version | head -n 1))"
     else
-      add_issue "docker compose plugin missing" "upgrade/reinstall Docker Desktop (includes compose plugin)"
+      add_issue "docker compose unavailable" "Docker: reinstall/upgrade Docker Desktop; Podman: brew install podman-compose"
       failed=1
     fi
   else
-    add_issue "docker missing" "brew install --cask docker && open -a Docker"
+    add_issue "docker/podman missing" "brew install podman podman-compose && podman machine init && podman machine start"
     failed=1
   fi
 
@@ -203,20 +203,27 @@ check_install_dependencies() {
 check_runtime_status() {
   local failed=0
 
-  if command -v docker >/dev/null 2>&1; then
-    add_ok "docker command available for runtime checks"
-    if setup_docker_daemon_running; then
-      add_ok "docker daemon running"
+  if setup_prepare_docker_alias; then
+    add_ok "docker command available for runtime checks (Docker or podman mapping)"
+    if docker compose version >/dev/null 2>&1; then
+      add_ok "docker compose available ($(docker compose version | head -n 1))"
     else
-      add_runtime_blocker "docker daemon not running" "open -a Docker"
+      add_runtime_blocker "docker compose unavailable" "Docker: reinstall/upgrade Docker Desktop; Podman: brew install podman-compose"
+      failed=1
+    fi
+
+    if setup_docker_daemon_running; then
+      add_ok "docker runtime ready"
+    else
+      add_runtime_blocker "docker runtime not ready" "Docker: open -a Docker; Podman: podman machine start"
       failed=1
     fi
   else
     if [[ "$MODE" == "runtime" ]]; then
-      add_runtime_blocker "docker missing" "brew install --cask docker && open -a Docker"
+      add_runtime_blocker "docker/podman missing" "brew install podman podman-compose && podman machine init && podman machine start"
       failed=1
     else
-      add_warn_item "runtime docker check skipped because docker is missing"
+      add_warn_item "runtime docker check skipped because docker/podman is missing"
     fi
   fi
 

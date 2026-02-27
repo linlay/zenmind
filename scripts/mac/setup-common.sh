@@ -99,27 +99,49 @@ setup_check_java21() {
   return 0
 }
 
+setup_prepare_docker_alias() {
+  if command -v docker >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! command -v podman >/dev/null 2>&1; then
+    return 1
+  fi
+
+  # In non-interactive bash scripts, user shell aliases are usually unavailable.
+  # Define a shell function shim so docker commands can run through podman.
+  if ! declare -F docker >/dev/null 2>&1; then
+    docker() {
+      podman "$@"
+    }
+  fi
+
+  return 0
+}
+
 setup_check_docker_compose_for_app_server() {
-  if ! command -v docker >/dev/null 2>&1; then
-    setup_err "Docker not found (required by zenmind-app-server container setup)"
+  if ! setup_prepare_docker_alias; then
+    setup_err "Docker not found (or install podman and map docker to podman)"
     return 1
   fi
 
   if ! docker compose version >/dev/null 2>&1; then
-    setup_err "docker compose plugin not available (required by zenmind-app-server)"
+    setup_err "docker compose not available (required by zenmind-app-server)"
+    setup_err "if using podman, install podman-compose and run: podman machine start"
     return 1
   fi
 
   setup_log "Docker Compose OK: $(docker compose version | head -n 1)"
 
   if ! setup_docker_daemon_running; then
-    setup_warn "docker command exists but daemon is not running (start Docker Desktop before running app-server)"
+    setup_warn "docker runtime not ready (if using podman alias: run podman machine start)"
   fi
 
   return 0
 }
 
 setup_docker_daemon_running() {
+  setup_prepare_docker_alias || return 1
   docker info >/dev/null 2>&1
 }
 

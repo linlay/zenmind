@@ -59,15 +59,15 @@ repo_release_dir() {
 repo_packaged_output_dir() {
   local repo="$1"
   case "$repo" in
-    term-webclient|zenmind-app-server)
-      printf '%s/release\n' "$(repo_source_dir "$repo")"
-      ;;
-    agent-platform-runner)
-      printf '%s/release-local\n' "$(repo_source_dir "$repo")"
-      ;;
-    *)
-      return 1
-      ;;
+  term-webclient | zenmind-app-server)
+    printf '%s/release\n' "$(repo_source_dir "$repo")"
+    ;;
+  agent-platform-runner)
+    printf '%s/release-local\n' "$(repo_source_dir "$repo")"
+    ;;
+  *)
+    return 1
+    ;;
   esac
 }
 
@@ -100,48 +100,53 @@ USAGE
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --action)
-        [[ $# -ge 2 ]] || { setup_err "--action requires a value"; exit 1; }
-        ACTION="$2"
-        shift 2
-        ;;
-      --base-dir)
-        [[ $# -ge 2 ]] || { setup_err "--base-dir requires a value"; exit 1; }
-        BASE_DIR="$2"
-        shift 2
-        ;;
-      --yes)
-        NON_INTERACTIVE=1
-        shift
-        ;;
-      --show-plain-password)
-        SHOW_PLAIN_PASSWORD=1
-        shift
-        ;;
-      -h|--help)
-        usage
-        exit 0
-        ;;
-      -* )
-        setup_err "unknown option: $1"
-        usage
+    --action)
+      [[ $# -ge 2 ]] || {
+        setup_err "--action requires a value"
         exit 1
-        ;;
-      *)
-        BASE_DIR="$1"
-        shift
-        ;;
+      }
+      ACTION="$2"
+      shift 2
+      ;;
+    --base-dir)
+      [[ $# -ge 2 ]] || {
+        setup_err "--base-dir requires a value"
+        exit 1
+      }
+      BASE_DIR="$2"
+      shift 2
+      ;;
+    --yes)
+      NON_INTERACTIVE=1
+      shift
+      ;;
+    --show-plain-password)
+      SHOW_PLAIN_PASSWORD=1
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    -*)
+      setup_err "unknown option: $1"
+      usage
+      exit 1
+      ;;
+    *)
+      BASE_DIR="$1"
+      shift
+      ;;
     esac
   done
 
   case "$ACTION" in
-    ""|precheck|first-install|update|start|stop|reset-password-hash)
-      ;;
-    *)
-      setup_err "invalid action: $ACTION"
-      usage
-      exit 1
-      ;;
+  "" | precheck | first-install | update | start | stop | reset-password-hash) ;;
+  *)
+    setup_err "invalid action: $ACTION"
+    usage
+    exit 1
+    ;;
   esac
 
   if [[ -z "$ACTION" && "$NON_INTERACTIVE" == "1" ]]; then
@@ -181,21 +186,21 @@ print_summary() {
   echo
   setup_log "===== ${title} summary ====="
 
-  if (( ${#SUMMARY_OK[@]} > 0 )); then
+  if ((${#SUMMARY_OK[@]} > 0)); then
     setup_log "success (${#SUMMARY_OK[@]}):"
     for item in "${SUMMARY_OK[@]}"; do
       setup_log "  - $item"
     done
   fi
 
-  if (( ${#SUMMARY_WARN[@]} > 0 )); then
+  if ((${#SUMMARY_WARN[@]} > 0)); then
     setup_warn "warnings (${#SUMMARY_WARN[@]}):"
     for item in "${SUMMARY_WARN[@]}"; do
       setup_warn "  - $item"
     done
   fi
 
-  if (( ${#SUMMARY_FAIL[@]} > 0 )); then
+  if ((${#SUMMARY_FAIL[@]} > 0)); then
     setup_err "failures (${#SUMMARY_FAIL[@]}):"
     for item in "${SUMMARY_FAIL[@]}"; do
       setup_err "  - $item"
@@ -207,7 +212,9 @@ print_summary() {
 [setup-mac] common fix hints:
   - Run precheck first: ./setup-mac.sh --action precheck
   - Install dependencies: brew install git openjdk@21 maven node@20
-  - Install Docker Desktop: brew install --cask docker
+  - Install Podman + alias (recommended): brew install podman podman-compose && podman machine init && podman machine start
+  - Optional: alias docker='podman'
+  - Install Docker Desktop (alternative): brew install --cask docker && open -a Docker
   - Install nginx (optional): brew install nginx
   - Start nginx (optional): ./scripts/mac/start-nginx.sh
   - Optional bcrypt tool: brew install httpd
@@ -333,12 +340,11 @@ copy_example_configs() {
   local mapping source_rel target_rel required source_path actual_source target_path backup_path display_source
 
   case "$mode" in
-    overwrite|if-missing)
-      ;;
-    *)
-      summary_add_fail "invalid copy config mode: $mode"
-      return 1
-      ;;
+  overwrite | if-missing) ;;
+  *)
+    summary_add_fail "invalid copy config mode: $mode"
+    return 1
+    ;;
   esac
 
   setup_log "syncing example configs into release directories (mode=$mode)"
@@ -667,8 +673,11 @@ validate_release_artifacts_term_webclient() {
     [[ -f "$file" ]] || missing+=("$file")
   done
 
-  if (( ${#missing[@]} > 0 )); then
-    summary_add_fail "term-webclient release incomplete, missing: $(IFS=', '; echo "${missing[*]}")"
+  if ((${#missing[@]} > 0)); then
+    summary_add_fail "term-webclient release incomplete, missing: $(
+      IFS=', '
+      echo "${missing[*]}"
+    )"
     return 1
   fi
 
@@ -696,8 +705,11 @@ validate_release_artifacts_zenmind_app_server() {
     [[ -f "$file" ]] || missing+=("$file")
   done
 
-  if (( ${#missing[@]} > 0 )); then
-    summary_add_fail "zenmind-app-server release incomplete, missing: $(IFS=', '; echo "${missing[*]}")"
+  if ((${#missing[@]} > 0)); then
+    summary_add_fail "zenmind-app-server release incomplete, missing: $(
+      IFS=', '
+      echo "${missing[*]}"
+    )"
     return 1
   fi
 
@@ -719,11 +731,96 @@ validate_release_artifacts_agent_platform_runner() {
     [[ -f "$file" ]] || missing+=("$file")
   done
 
-  if (( ${#missing[@]} > 0 )); then
-    summary_add_warn "agent-platform-runner release incomplete, skip optional service: $(IFS=', '; echo "${missing[*]}")"
+  if ((${#missing[@]} > 0)); then
+    summary_add_warn "agent-platform-runner release incomplete, skip optional service: $(
+      IFS=', '
+      echo "${missing[*]}"
+    )"
     return 0
   fi
 
+  return 0
+}
+
+read_env_value_from_file() {
+  local file="$1"
+  local key="$2"
+
+  if [[ ! -f "$file" ]]; then
+    return 1
+  fi
+
+  awk -v key="$key" '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    {
+      line=$0
+      sub(/^[[:space:]]+/, "", line)
+      eq=index(line, "=")
+      if (eq <= 0) {
+        next
+      }
+      k=substr(line, 1, eq - 1)
+      sub(/[[:space:]]+$/, "", k)
+      if (k != key) {
+        next
+      }
+      v=substr(line, eq + 1)
+      sub(/^[[:space:]]+/, "", v)
+      sub(/[[:space:]]+$/, "", v)
+      gsub(/^["'"'"']|["'"'"']$/, "", v)
+      print v
+      exit
+    }
+  ' "$file"
+}
+
+listening_processes_for_port() {
+  local port="$1"
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {printf "%s(pid=%s) ", $1, $2}'
+}
+
+diagnose_term_webclient_start_failure() {
+  local release_repo="$1"
+  local env_file backend_log frontend_log
+  local backend_port frontend_port
+  local backend_listeners frontend_listeners
+  local port_conflict=0
+
+  env_file="$release_repo/.env"
+  backend_log="$release_repo/logs/backend.out"
+  frontend_log="$release_repo/logs/frontend.out"
+
+  backend_port="$(read_env_value_from_file "$env_file" "BACKEND_PORT" || true)"
+  frontend_port="$(read_env_value_from_file "$env_file" "FRONTEND_PORT" || true)"
+  if [[ -z "$frontend_port" ]]; then
+    frontend_port="$(read_env_value_from_file "$env_file" "PORT" || true)"
+  fi
+
+  backend_port="${backend_port:-11946}"
+  frontend_port="${frontend_port:-11947}"
+
+  if [[ -f "$backend_log" ]] && grep -Eiq 'Port[[:space:]]+[0-9]+[[:space:]]+was already in use|Address already in use' "$backend_log"; then
+    port_conflict=1
+  fi
+  if [[ -f "$frontend_log" ]] && grep -Eiq 'EADDRINUSE|address already in use' "$frontend_log"; then
+    port_conflict=1
+  fi
+
+  if [[ "$port_conflict" == "1" ]]; then
+    backend_listeners="$(listening_processes_for_port "$backend_port")"
+    frontend_listeners="$(listening_processes_for_port "$frontend_port")"
+    if [[ -n "$backend_listeners" ]]; then
+      summary_add_fail "term-webclient backend port ${backend_port} is in use by: ${backend_listeners}"
+    fi
+    if [[ -n "$frontend_listeners" ]]; then
+      summary_add_fail "term-webclient frontend port ${frontend_port} is in use by: ${frontend_listeners}"
+    fi
+    summary_add_fail "term-webclient port conflict detected; run stop, then release ports or change ports in release/term-webclient/.env"
+    return 0
+  fi
+
+  summary_add_warn "term-webclient start failed; check logs: $backend_log , $frontend_log"
   return 0
 }
 
@@ -792,6 +889,7 @@ start_term_webclient() {
     return 1
   fi
 
+  diagnose_term_webclient_start_failure "$release_repo"
   summary_add_fail "failed to start term-webclient"
   return 1
 }
@@ -809,8 +907,18 @@ start_zenmind_app_server() {
 
   validate_release_artifacts_zenmind_app_server || return 1
 
+  if ! setup_prepare_docker_alias; then
+    summary_add_fail "docker command unavailable (install Docker, or install podman and map docker to podman)"
+    return 1
+  fi
+
+  if ! docker compose version >/dev/null 2>&1; then
+    summary_add_fail "docker compose unavailable; if using podman, install podman-compose"
+    return 1
+  fi
+
   if ! setup_docker_daemon_running; then
-    summary_add_fail "docker is installed but daemon is not running; start Docker Desktop before starting zenmind-app-server"
+    summary_add_fail "docker runtime not ready; if using podman alias run: podman machine start"
     return 1
   fi
 
@@ -917,13 +1025,18 @@ stop_zenmind_app_server() {
     return 0
   fi
 
-  if ! command -v docker >/dev/null 2>&1; then
-    summary_add_warn "docker not installed, skip stop: zenmind-app-server"
+  if ! setup_prepare_docker_alias; then
+    summary_add_warn "docker command unavailable (and podman alias not ready), skip stop: zenmind-app-server"
+    return 0
+  fi
+
+  if ! docker compose version >/dev/null 2>&1; then
+    summary_add_warn "docker compose unavailable, skip stop: zenmind-app-server"
     return 0
   fi
 
   if ! setup_docker_daemon_running; then
-    summary_add_warn "docker daemon not running, skip stop: zenmind-app-server"
+    summary_add_warn "docker runtime not ready, skip stop: zenmind-app-server"
     return 0
   fi
 
@@ -983,6 +1096,31 @@ stop_term_webclient() {
   return 0
 }
 
+collect_running_compose_services() {
+  local release_repo="$1"
+  local services ps_output
+
+  services="$(cd "$release_repo" && docker compose ps --status running --services 2>/dev/null || true)"
+  if [[ -n "$services" ]]; then
+    printf '%s\n' "$services"
+    return 0
+  fi
+
+  services="$(cd "$release_repo" && docker compose ps --services 2>/dev/null || true)"
+  if [[ -n "$services" ]]; then
+    printf '%s\n' "$services"
+    return 0
+  fi
+
+  ps_output="$(cd "$release_repo" && docker compose ps 2>/dev/null || true)"
+  if [[ -n "$ps_output" ]] && printf '%s\n' "$ps_output" | grep -Eiq '\b(up|running|healthy)\b'; then
+    printf '%s\n' "$ps_output"
+    return 0
+  fi
+
+  return 1
+}
+
 health_check_after_start() {
   local failed=0
   local term_release app_release agent_release
@@ -992,17 +1130,19 @@ health_check_after_start() {
   app_release="$(repo_release_dir "zenmind-app-server")"
   agent_release="$(repo_release_dir "agent-platform-runner")"
 
-  if setup_process_running_from_pid_file "$term_release/run/backend.pid" && \
-     setup_process_running_from_pid_file "$term_release/run/frontend.pid"; then
+  if setup_process_running_from_pid_file "$term_release/run/backend.pid" &&
+    setup_process_running_from_pid_file "$term_release/run/frontend.pid"; then
     summary_add_ok "health check passed: term-webclient backend/frontend pids alive"
   else
     summary_add_fail "health check failed: term-webclient process not fully running"
     failed=1
   fi
 
-  if [[ -d "$app_release" ]] && setup_docker_daemon_running; then
-    running_services="$(cd "$app_release" && docker compose ps --status running --services 2>/dev/null || true)"
-    if [[ -n "$running_services" ]]; then
+  if [[ -d "$app_release" ]] &&
+    setup_prepare_docker_alias &&
+    docker compose version >/dev/null 2>&1 &&
+    setup_docker_daemon_running; then
+    if running_services="$(collect_running_compose_services "$app_release")"; then
       summary_add_ok "health check passed: zenmind-app-server has running compose services"
     else
       summary_add_fail "health check failed: zenmind-app-server has no running compose service"
@@ -1047,7 +1187,10 @@ run_first_install() {
   run_package_all_repos || failed=1
   move_packaged_artifacts_all || failed=1
   copy_example_configs "overwrite" || failed=1
-  configure_password_hashes || { summary_add_fail "failed to configure password hashes"; failed=1; }
+  configure_password_hashes || {
+    summary_add_fail "failed to configure password hashes"
+    failed=1
+  }
 
   summary_add_warn "security reminder: replace default passwords and review sensitive release config values"
 
@@ -1136,35 +1279,35 @@ dispatch_action() {
   summary_reset
 
   case "$action" in
-    precheck)
-      run_precheck || status=1
-      print_summary "precheck"
-      ;;
-    first-install)
-      run_first_install || status=1
-      print_summary "first-install"
-      ;;
-    update)
-      run_update || status=1
-      print_summary "update"
-      ;;
-    start)
-      run_start || status=1
-      print_summary "start"
-      ;;
-    stop)
-      run_stop || status=1
-      print_summary "stop"
-      ;;
-    reset-password-hash)
-      run_reset_password_hash || status=1
-      print_summary "reset-password-hash"
-      ;;
-    *)
-      summary_add_fail "unsupported action: $action"
-      print_summary "unknown"
-      status=1
-      ;;
+  precheck)
+    run_precheck || status=1
+    print_summary "precheck"
+    ;;
+  first-install)
+    run_first_install || status=1
+    print_summary "first-install"
+    ;;
+  update)
+    run_update || status=1
+    print_summary "update"
+    ;;
+  start)
+    run_start || status=1
+    print_summary "start"
+    ;;
+  stop)
+    run_stop || status=1
+    print_summary "stop"
+    ;;
+  reset-password-hash)
+    run_reset_password_hash || status=1
+    print_summary "reset-password-hash"
+    ;;
+  *)
+    summary_add_fail "unsupported action: $action"
+    print_summary "unknown"
+    status=1
+    ;;
   esac
 
   return "$status"
@@ -1189,19 +1332,19 @@ MENU
 
     read -r -p "请输入数字 [0-6]: " choice
     case "$choice" in
-      1) dispatch_action "precheck" ;;
-      2) dispatch_action "first-install" ;;
-      3) dispatch_action "update" ;;
-      4) dispatch_action "start" ;;
-      5) dispatch_action "stop" ;;
-      6) dispatch_action "reset-password-hash" ;;
-      0)
-        setup_log "exit setup menu"
-        return 0
-        ;;
-      *)
-        setup_warn "invalid choice: $choice (allowed: 0-6)"
-        ;;
+    1) dispatch_action "precheck" ;;
+    2) dispatch_action "first-install" ;;
+    3) dispatch_action "update" ;;
+    4) dispatch_action "start" ;;
+    5) dispatch_action "stop" ;;
+    6) dispatch_action "reset-password-hash" ;;
+    0)
+      setup_log "exit setup menu"
+      return 0
+      ;;
+    *)
+      setup_warn "invalid choice: $choice (allowed: 0-6)"
+      ;;
     esac
   done
 }
