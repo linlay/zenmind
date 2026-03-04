@@ -1,7 +1,8 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [string]$Action,
   [string]$BaseDir,
+  [ValidateSet('auto', 'zh', 'en')][string]$Language = 'auto',
   [switch]$Yes,
   [Alias('h')][switch]$Help
 )
@@ -9,7 +10,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptPath = if (-not [string]::IsNullOrWhiteSpace($PSCommandPath)) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
+$ScriptDir = Split-Path -Parent $ScriptPath
 if ([string]::IsNullOrWhiteSpace($BaseDir)) {
   $BaseDir = $ScriptDir
 }
@@ -37,24 +39,89 @@ $SummaryFail = New-Object System.Collections.Generic.List[string]
 $script:UpdateConfigBackupDir = $null
 $env:SETUP_NON_INTERACTIVE = if ($Yes.IsPresent) { '1' } else { '0' }
 
+function Convert-CodePointText {
+  param([int[]]$CodePoints)
+  return (-join ($CodePoints | ForEach-Object { [char]$_ }))
+}
+
+$script:UiText = @{
+  en = @{
+    MenuPrecheck = 'Environment check'
+    MenuInstall = 'First install'
+    MenuUpdate = 'Update'
+    MenuStart = 'Start'
+    MenuStop = 'Stop'
+    MenuResetPasswordHash = 'Reset password hash'
+    MenuExit = 'Exit'
+    PromptChoice = 'Enter choice [0-6]'
+    OptionBaseDir = 'workspace root directory (default: script directory)'
+    OptionYes = 'non-interactive mode (password prompt uses default value)'
+    OptionHelp = 'show help'
+    OptionLanguage = 'ui language: auto | zh | en (default: auto)'
+  }
+  zh = @{
+    MenuPrecheck = Convert-CodePointText @(0x73AF,0x5883,0x68C0,0x67E5)
+    MenuInstall = Convert-CodePointText @(0x9996,0x6B21,0x5B89,0x88C5)
+    MenuUpdate = Convert-CodePointText @(0x66F4,0x65B0)
+    MenuStart = Convert-CodePointText @(0x542F,0x52A8)
+    MenuStop = Convert-CodePointText @(0x505C,0x6B62)
+    MenuResetPasswordHash = Convert-CodePointText @(0x91CD,0x7F6E,0x5BC6,0x7801,0x54C8,0x5E0C)
+    MenuExit = Convert-CodePointText @(0x9000,0x51FA)
+    PromptChoice = (Convert-CodePointText @(0x8BF7,0x8F93,0x5165,0x9009,0x9879)) + ' [0-6]'
+    OptionBaseDir = Convert-CodePointText @(0x5DE5,0x4F5C,0x533A,0x6839,0x76EE,0x5F55,0xFF08,0x9ED8,0x8BA4,0xFF1A,0x811A,0x672C,0x6240,0x5728,0x76EE,0x5F55,0xFF09)
+    OptionYes = Convert-CodePointText @(0x975E,0x4EA4,0x4E92,0x6A21,0x5F0F,0xFF08,0x5BC6,0x7801,0x63D0,0x793A,0x4F7F,0x7528,0x9ED8,0x8BA4,0x503C,0xFF09)
+    OptionHelp = Convert-CodePointText @(0x663E,0x793A,0x5E2E,0x52A9)
+    OptionLanguage = (Convert-CodePointText @(0x754C,0x9762,0x8BED,0x8A00,0xFF1A)) + 'auto | zh | en' + (Convert-CodePointText @(0xFF08,0x9ED8,0x8BA4,0xFF1A)) + 'auto' + (Convert-CodePointText @(0xFF09))
+  }
+}
+
+function Resolve-UiLanguage {
+  param([string]$Preferred)
+  $selected = $Preferred
+  if ([string]::IsNullOrWhiteSpace($selected) -or $selected -eq 'auto') {
+    if (-not [string]::IsNullOrWhiteSpace($env:SETUP_LANG)) {
+      $selected = $env:SETUP_LANG
+    } else {
+      $selected = [System.Globalization.CultureInfo]::CurrentUICulture.Name
+    }
+  }
+
+  $normalized = $selected.ToLowerInvariant()
+  if ($normalized.StartsWith('zh')) {
+    return 'zh'
+  }
+  return 'en'
+}
+
+$script:UiLanguage = Resolve-UiLanguage -Preferred $Language
+
+function Get-UiText {
+  param([string]$Key)
+  $langTable = $script:UiText[$script:UiLanguage]
+  if ($langTable.ContainsKey($Key)) {
+    return $langTable[$Key]
+  }
+  return $script:UiText['en'][$Key]
+}
 function Show-Usage {
   @"
-Usage: $(Split-Path -Leaf $MyInvocation.MyCommand.Path) [-Action ACTION] [-BaseDir PATH] [-Yes] [-Help]
+Usage: $(Split-Path -Leaf $ScriptPath) [-Action ACTION] [-BaseDir PATH] [-Language LANG] [-Yes] [-Help]
 
 Interactive menu (default):
-  1) 环境检测
-  2) 首次安装
-  3) 更新
-  4) 启动
-  5) 停止
-  6) 重置密码哈希
-  0) 退出
+  1) $(Get-UiText 'MenuPrecheck')
+  2) $(Get-UiText 'MenuInstall')
+  3) $(Get-UiText 'MenuUpdate')
+  4) $(Get-UiText 'MenuStart')
+  5) $(Get-UiText 'MenuStop')
+  6) $(Get-UiText 'MenuResetPasswordHash')
+  0) $(Get-UiText 'MenuExit')
 
 Options:
   -Action      precheck | first-install | update | start | stop | reset-password-hash
-  -BaseDir     工作区根目录（默认: 脚本所在目录）
-  -Yes         非交互模式（密码提示使用默认值）
-  -Help/-h     显示帮助
+  -BaseDir     $(Get-UiText 'OptionBaseDir')
+  -Language    $(Get-UiText 'OptionLanguage')
+  -Yes         $(Get-UiText 'OptionYes')
+  -Help/-h     $(Get-UiText 'OptionHelp')
 "@ | Write-Host
 }
 
@@ -172,7 +239,7 @@ function Print-Summary {
     @'
 [setup-win] common fix hints:
   - Run precheck first: .\setup-windows.ps1 -Action precheck
-  - Install dependencies: git, JDK 21+, Maven 3.9+, Node.js 20+, Docker Desktop
+  - Install dependencies: git, JDK 21+, Maven 3.9+, Node.js 20+, Docker Engine (WSL) or Podman
   - Optional nginx install: winget install --id Nginx.Nginx -e
   - Optional bcrypt helper: install python+bcrypt or htpasswd
 '@ | Write-Host
@@ -210,7 +277,7 @@ function Invoke-CheckScriptProcess {
     return $false
   }
 
-  & $psExe -NoProfile -ExecutionPolicy Bypass -File $CheckScriptPath -Mode $Mode
+  & $psExe -NoProfile -ExecutionPolicy Bypass -File $CheckScriptPath -Mode $Mode | Out-Host
   return ($LASTEXITCODE -eq 0)
 }
 
@@ -309,7 +376,7 @@ function Test-AnyRepoFile {
       return $true
     }
   }
-  Summary-AddFail "missing required script in source/$Repo: $($Candidates -join ', ')"
+  Summary-AddFail "missing required script in source/${Repo}: $($Candidates -join ', ')"
   return $false
 }
 
@@ -499,19 +566,19 @@ function Configure-PasswordHashes {
   Setup-EnsureEnvFile -EnvFile $appEnv
 
   try {
-    $termPlain = Setup-PromptPassword -Prompt 'term-webclient AUTH_PASSWORD_HASH_BCRYPT 对应明文密码' -DefaultPassword 'password'
+    $termPlain = Setup-PromptPassword -Prompt 'term-webclient AUTH_PASSWORD_HASH_BCRYPT 瀵瑰簲鏄庢枃瀵嗙爜' -DefaultPassword 'password'
     $termHash = Setup-GenerateBcrypt -PlainPassword $termPlain
     Setup-UpsertEnvVar -EnvFile $termEnv -Key 'AUTH_PASSWORD_HASH_BCRYPT' -Value (Setup-SingleQuoteEnvValue -Value $termHash)
     Setup-Log "[bcrypt] written to .env: AUTH_PASSWORD_HASH_BCRYPT=$(Setup-SingleQuoteEnvValue -Value $termHash)"
     Summary-AddOk 'updated AUTH_PASSWORD_HASH_BCRYPT in release/term-webclient/.env'
 
-    $adminPlain = Setup-PromptPassword -Prompt 'zenmind-app-server AUTH_ADMIN_PASSWORD_BCRYPT 对应明文密码' -DefaultPassword 'password'
+    $adminPlain = Setup-PromptPassword -Prompt 'zenmind-app-server AUTH_ADMIN_PASSWORD_BCRYPT 瀵瑰簲鏄庢枃瀵嗙爜' -DefaultPassword 'password'
     $adminHash = Setup-GenerateBcrypt -PlainPassword $adminPlain
     Setup-UpsertEnvVar -EnvFile $appEnv -Key 'AUTH_ADMIN_PASSWORD_BCRYPT' -Value (Setup-SingleQuoteEnvValue -Value $adminHash)
     Setup-Log "[bcrypt] written to .env: AUTH_ADMIN_PASSWORD_BCRYPT=$(Setup-SingleQuoteEnvValue -Value $adminHash)"
     Summary-AddOk 'updated AUTH_ADMIN_PASSWORD_BCRYPT in release/zenmind-app-server/.env'
 
-    $masterPlain = Setup-PromptPassword -Prompt 'zenmind-app-server AUTH_APP_MASTER_PASSWORD_BCRYPT 对应明文密码' -DefaultPassword 'password'
+    $masterPlain = Setup-PromptPassword -Prompt 'zenmind-app-server AUTH_APP_MASTER_PASSWORD_BCRYPT 瀵瑰簲鏄庢枃瀵嗙爜' -DefaultPassword 'password'
     $masterHash = Setup-GenerateBcrypt -PlainPassword $masterPlain
     Setup-UpsertEnvVar -EnvFile $appEnv -Key 'AUTH_APP_MASTER_PASSWORD_BCRYPT' -Value (Setup-SingleQuoteEnvValue -Value $masterHash)
     Setup-Log "[bcrypt] written to .env: AUTH_APP_MASTER_PASSWORD_BCRYPT=$(Setup-SingleQuoteEnvValue -Value $masterHash)"
@@ -773,7 +840,7 @@ function Start-ZenmindAppServer {
   if (-not (Validate-ReleaseArtifacts -Repo 'zenmind-app-server')) { return $false }
 
   if (-not (Setup-DockerDaemonRunning)) {
-    Summary-AddFail 'docker is installed but daemon is not running; start Docker Desktop before starting zenmind-app-server'
+    Summary-AddFail 'docker is installed but daemon is not running; start docker daemon/service before starting zenmind-app-server'
     return $false
   }
 
@@ -1112,19 +1179,17 @@ function Dispatch-Action {
 function Show-Menu {
   while ($true) {
     Write-Host ''
-    @'
-================ Setup Menu ================
-1) 环境检测
-2) 首次安装
-3) 更新
-4) 启动
-5) 停止
-6) 重置密码哈希
-0) 退出
-===========================================
-'@ | Write-Host
+    Write-Host '================ Setup Menu ================'
+    Write-Host ("1) {0}" -f (Get-UiText 'MenuPrecheck'))
+    Write-Host ("2) {0}" -f (Get-UiText 'MenuInstall'))
+    Write-Host ("3) {0}" -f (Get-UiText 'MenuUpdate'))
+    Write-Host ("4) {0}" -f (Get-UiText 'MenuStart'))
+    Write-Host ("5) {0}" -f (Get-UiText 'MenuStop'))
+    Write-Host ("6) {0}" -f (Get-UiText 'MenuResetPasswordHash'))
+    Write-Host ("0) {0}" -f (Get-UiText 'MenuExit'))
+    Write-Host '==========================================='
 
-    $choice = Read-Host '请输入数字 [0-6]'
+    $choice = Read-Host (Get-UiText 'PromptChoice')
     switch ($choice) {
       '1' { [void](Dispatch-Action -RequestedAction 'precheck') }
       '2' { [void](Dispatch-Action -RequestedAction 'first-install') }
