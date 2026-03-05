@@ -25,31 +25,33 @@ USAGE
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --mode)
-        [[ $# -ge 2 ]] || { setup_err "--mode requires a value"; exit 2; }
-        MODE="$2"
-        shift 2
-        ;;
-      -h|--help)
-        usage
-        exit 0
-        ;;
-      *)
-        setup_err "unknown argument: $1"
-        usage
+    --mode)
+      [[ $# -ge 2 ]] || {
+        setup_err "--mode requires a value"
         exit 2
-        ;;
+      }
+      MODE="$2"
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      setup_err "unknown argument: $1"
+      usage
+      exit 2
+      ;;
     esac
   done
 
   case "$MODE" in
-    install|runtime|all)
-      ;;
-    *)
-      setup_err "invalid mode: $MODE"
-      usage
-      exit 2
-      ;;
+  install | runtime | all) ;;
+  *)
+    setup_err "invalid mode: $MODE"
+    usage
+    exit 2
+    ;;
   esac
 }
 
@@ -85,7 +87,7 @@ print_report() {
   setup_log "===== environment report (mode=$MODE) ====="
 
   print_section_header "[OK]"
-  if (( ${#OK_ITEMS[@]} == 0 )); then
+  if ((${#OK_ITEMS[@]} == 0)); then
     setup_log "  - none"
   else
     for entry in "${OK_ITEMS[@]}"; do
@@ -94,7 +96,7 @@ print_report() {
   fi
 
   print_section_header "[MISSING / VERSION_MISMATCH]"
-  if (( ${#ISSUE_ITEMS[@]} == 0 )); then
+  if ((${#ISSUE_ITEMS[@]} == 0)); then
     setup_log "  - none"
   else
     for entry in "${ISSUE_ITEMS[@]}"; do
@@ -105,7 +107,7 @@ print_report() {
   fi
 
   print_section_header "[NOT_RUNNING / RUNTIME_BLOCKER]"
-  if (( ${#RUNTIME_BLOCKERS[@]} == 0 )); then
+  if ((${#RUNTIME_BLOCKERS[@]} == 0)); then
     setup_log "  - none"
   else
     for entry in "${RUNTIME_BLOCKERS[@]}"; do
@@ -116,7 +118,7 @@ print_report() {
   fi
 
   print_section_header "[WARNINGS]"
-  if (( ${#WARN_ITEMS[@]} == 0 )); then
+  if ((${#WARN_ITEMS[@]} == 0)); then
     setup_log "  - none"
   else
     for entry in "${WARN_ITEMS[@]}"; do
@@ -127,7 +129,7 @@ print_report() {
 
 check_install_dependencies() {
   local failed=0
-  local version raw major
+  local version raw major go_raw
 
   if command -v git >/dev/null 2>&1; then
     add_ok "git installed"
@@ -136,11 +138,25 @@ check_install_dependencies() {
     failed=1
   fi
 
+  if command -v go >/dev/null 2>&1; then
+    go_raw="$(go version 2>/dev/null || true)"
+    version="$(printf '%s' "$go_raw" | awk '{print $3}' | sed 's/^go//')"
+    if [[ -n "$version" ]] && setup_semver_ge "$version" "1.26.0"; then
+      add_ok "go installed (version $version)"
+    else
+      add_issue "go version too low or unparsable (${go_raw:-unknown})" "install/upgrade Go to 1.26.0+"
+      failed=1
+    fi
+  else
+    add_issue "go missing (required: 1.26.0+)" "brew install go"
+    failed=1
+  fi
+
   if command -v java >/dev/null 2>&1; then
     raw="$(java -version 2>&1 | head -n 1)"
     version="$(printf '%s' "$raw" | sed -E 's/.*"([0-9]+(\.[0-9]+){0,2}).*/\1/')"
     major="${version%%.*}"
-    if [[ -n "$major" && "$major" =~ ^[0-9]+$ ]] && (( major >= 21 )); then
+    if [[ -n "$major" && "$major" =~ ^[0-9]+$ ]] && ((major >= 21)); then
       add_ok "java installed (version $version)"
     else
       add_issue "java version too low or unparsable ($raw)" "brew install openjdk@21"
@@ -184,48 +200,11 @@ check_install_dependencies() {
     failed=1
   fi
 
-  if setup_prepare_docker_alias; then
-    add_ok "docker command available (Docker or podman mapping)"
-    if docker compose version >/dev/null 2>&1; then
-      add_ok "docker compose available ($(docker compose version | head -n 1))"
-    else
-      add_issue "docker compose unavailable" "Docker: reinstall/upgrade Docker Desktop; Podman: brew install podman-compose"
-      failed=1
-    fi
-  else
-    add_issue "docker/podman missing" "brew install podman podman-compose && podman machine init && podman machine start"
-    failed=1
-  fi
-
   return "$failed"
 }
 
 check_runtime_status() {
-  local failed=0
-
-  if setup_prepare_docker_alias; then
-    add_ok "docker command available for runtime checks (Docker or podman mapping)"
-    if docker compose version >/dev/null 2>&1; then
-      add_ok "docker compose available ($(docker compose version | head -n 1))"
-    else
-      add_runtime_blocker "docker compose unavailable" "Docker: reinstall/upgrade Docker Desktop; Podman: brew install podman-compose"
-      failed=1
-    fi
-
-    if setup_docker_daemon_running; then
-      add_ok "docker runtime ready"
-    else
-      add_runtime_blocker "docker runtime not ready" "Docker: open -a Docker; Podman: podman machine start"
-      failed=1
-    fi
-  else
-    if [[ "$MODE" == "runtime" ]]; then
-      add_runtime_blocker "docker/podman missing" "brew install podman podman-compose && podman machine init && podman machine start"
-      failed=1
-    else
-      add_warn_item "runtime docker check skipped because docker/podman is missing"
-    fi
-  fi
+  add_ok "runtime mandatory checks: none (docker/compose not required in mac-first topology)"
 
   if command -v nginx >/dev/null 2>&1; then
     add_ok "nginx installed"
@@ -238,7 +217,7 @@ check_runtime_status() {
     add_warn_item "nginx not installed (optional). install: brew install nginx"
   fi
 
-  return "$failed"
+  return 0
 }
 
 main() {
@@ -247,16 +226,16 @@ main() {
   parse_args "$@"
 
   case "$MODE" in
-    install)
-      check_install_dependencies || failed=1
-      ;;
-    runtime)
-      check_runtime_status || failed=1
-      ;;
-    all)
-      check_install_dependencies || failed=1
-      check_runtime_status || failed=1
-      ;;
+  install)
+    check_install_dependencies || failed=1
+    ;;
+  runtime)
+    check_runtime_status || failed=1
+    ;;
+  all)
+    check_install_dependencies || failed=1
+    check_runtime_status || failed=1
+    ;;
   esac
 
   print_report

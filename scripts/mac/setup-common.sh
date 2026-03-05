@@ -27,6 +27,29 @@ setup_semver_ge() {
   [[ "$(printf '%s\n%s\n' "$required" "$actual" | sort -V | tail -n 1)" == "$actual" ]]
 }
 
+setup_check_go126() {
+  if ! command -v go >/dev/null 2>&1; then
+    setup_err "Go not found (required: 1.26.0+)"
+    return 1
+  fi
+
+  local raw version
+  raw="$(go version 2>/dev/null || true)"
+  version="$(printf '%s' "$raw" | awk '{print $3}' | sed 's/^go//')"
+  if [[ -z "$version" ]]; then
+    setup_err "unable to parse Go version from: $raw"
+    return 1
+  fi
+
+  if ! setup_semver_ge "$version" "1.26.0"; then
+    setup_err "Go version too low: $version (required: 1.26.0+)"
+    return 1
+  fi
+
+  setup_log "Go OK: $version"
+  return 0
+}
+
 setup_check_node20() {
   if ! command -v node >/dev/null 2>&1; then
     setup_err "Node.js not found (required: 20+)"
@@ -161,7 +184,7 @@ setup_check_optional_tools() {
   if command -v python3 >/dev/null 2>&1; then
     setup_log "Optional tool OK: python3"
   else
-    setup_warn "optional tool missing: python3 (used in term-webclient README password hash example)"
+    setup_warn "optional tool missing: python3 (can be used as bcrypt helper)"
   fi
 }
 

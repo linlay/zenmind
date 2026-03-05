@@ -19,11 +19,19 @@ readonly REPO_NAMES=(
   "term-webclient"
   "zenmind-app-server"
   "agent-platform-runner"
+  "mcp-server-mock"
 )
-readonly REPO_URLS=(
-  "https://github.com/linlay/term-webclient.git"
-  "https://github.com/linlay/zenmind-app-server.git"
-  "https://github.com/linlay/agent-platform-runner.git"
+readonly REQUIRED_START_ORDER=(
+  "zenmind-app-server"
+  "mcp-server-mock"
+  "agent-platform-runner"
+  "term-webclient"
+)
+readonly REQUIRED_STOP_ORDER=(
+  "term-webclient"
+  "agent-platform-runner"
+  "mcp-server-mock"
+  "zenmind-app-server"
 )
 
 # format: source|target|required
@@ -32,6 +40,7 @@ readonly CONFIG_MAPPINGS=(
   "source/term-webclient/application.example.yml|release/term-webclient/application.yml|true"
   "source/zenmind-app-server/.env.example|release/zenmind-app-server/.env|true"
   "source/agent-platform-runner/application.example.yml|release/agent-platform-runner/application.yml|true"
+  "source/mcp-server-mock/.env.example|release/mcp-server-mock/.env|true"
 )
 
 SUMMARY_OK=()
@@ -56,10 +65,15 @@ repo_release_dir() {
   printf '%s/%s\n' "$(workspace_release_dir)" "$repo"
 }
 
+repo_url() {
+  local repo="$1"
+  printf 'https://github.com/linlay/%s.git\n' "$repo"
+}
+
 repo_packaged_output_dir() {
   local repo="$1"
   case "$repo" in
-  term-webclient | zenmind-app-server)
+  term-webclient | zenmind-app-server | mcp-server-mock)
     printf '%s/release\n' "$(repo_source_dir "$repo")"
     ;;
   agent-platform-runner)
@@ -69,6 +83,43 @@ repo_packaged_output_dir() {
     return 1
     ;;
   esac
+}
+
+repo_package_script_rel() {
+  local repo="$1"
+  case "$repo" in
+  term-webclient | zenmind-app-server | mcp-server-mock)
+    printf 'release-scripts/mac/package.sh\n'
+    ;;
+  agent-platform-runner)
+    printf 'release-scripts/mac/package-local.sh\n'
+    ;;
+  *)
+    return 1
+    ;;
+  esac
+}
+
+repo_pid_files() {
+  local repo="$1"
+  case "$repo" in
+  term-webclient)
+    printf '%s\n' "run/backend.pid" "run/frontend.pid"
+    ;;
+  *)
+    printf '%s\n' "run/app.pid"
+    ;;
+  esac
+}
+
+repo_start_script_abs() {
+  local repo="$1"
+  printf '%s/release-scripts/mac/start.sh\n' "$(repo_release_dir "$repo")"
+}
+
+repo_stop_script_abs() {
+  local repo="$1"
+  printf '%s/release-scripts/mac/stop.sh\n' "$(repo_release_dir "$repo")"
 }
 
 ensure_workspace_layout() {
@@ -211,13 +262,9 @@ print_summary() {
     cat <<'HINT' >&2
 [setup-mac] common fix hints:
   - Run precheck first: ./setup-mac.sh --action precheck
-  - Install dependencies: brew install git openjdk@21 maven node@20
-  - Install Podman + alias (recommended): brew install podman podman-compose && podman machine init && podman machine start
-  - Optional: alias docker='podman'
-  - Install Docker Desktop (alternative): brew install --cask docker && open -a Docker
-  - Install nginx (optional): brew install nginx
-  - Start nginx (optional): ./scripts/mac/start-nginx.sh
-  - Optional bcrypt tool: brew install httpd
+  - Install dependencies: brew install git go openjdk@21 maven node@20
+  - Ensure Go version is 1.26.0 or newer
+  - Verify each service repo has release-scripts/mac/package*.sh and release-scripts/mac/start.sh/stop.sh
 HINT
   fi
 }
@@ -277,21 +324,17 @@ check_repo_file() {
 
 check_required_repo_files() {
   local failed=0
+  local repo package_script
 
-  check_repo_file "term-webclient" "README.md" || failed=1
-  check_repo_file "term-webclient" "backend/pom.xml" || failed=1
-  check_repo_file "term-webclient" "frontend/package.json" || failed=1
-  check_repo_file "term-webclient" "release-scripts/mac/package.sh" || failed=1
-
-  check_repo_file "zenmind-app-server" "README.md" || failed=1
-  check_repo_file "zenmind-app-server" "backend/pom.xml" || failed=1
-  check_repo_file "zenmind-app-server" "frontend/package.json" || failed=1
-  check_repo_file "zenmind-app-server" "docker-compose.yml" || failed=1
-  check_repo_file "zenmind-app-server" "release-scripts/mac/package.sh" || failed=1
-
-  check_repo_file "agent-platform-runner" "README.md" || failed=1
-  check_repo_file "agent-platform-runner" "pom.xml" || failed=1
-  check_repo_file "agent-platform-runner" "release-scripts/mac/package-local.sh" || failed=1
+  for repo in "${REPO_NAMES[@]}"; do
+    check_repo_file "$repo" "README.md" || failed=1
+    package_script="$(repo_package_script_rel "$repo")" || {
+      summary_add_fail "unsupported repo for package script: $repo"
+      failed=1
+      continue
+    }
+    check_repo_file "$repo" "$package_script" || failed=1
+  done
 
   return "$failed"
 }
@@ -498,6 +541,7 @@ configure_password_hashes() {
   app_master_hash="$(setup_generate_bcrypt "$app_master_plain")" || return 1
   setup_upsert_env_var "$app_env" "AUTH_APP_MASTER_PASSWORD_BCRYPT" "$(setup_single_quote_env_value "$app_master_hash")" || return 1
   summary_add_ok "updated AUTH_APP_MASTER_PASSWORD_BCRYPT in release/zenmind-app-server/.env"
+
   return 0
 }
 
@@ -546,54 +590,33 @@ check_runtime_environment_before_start() {
   return 1
 }
 
-run_package_term_webclient() {
-  local repo
-  repo="$(repo_source_dir "term-webclient")"
+run_package_repo() {
+  local repo="$1"
+  local repo_dir package_script
 
-  setup_log "packaging term-webclient via ./release-scripts/mac/package.sh"
-  if (cd "$repo" && ./release-scripts/mac/package.sh); then
-    summary_add_ok "packaged term-webclient"
+  repo_dir="$(repo_source_dir "$repo")"
+  package_script="$(repo_package_script_rel "$repo")" || {
+    summary_add_fail "unsupported repo for package: $repo"
+    return 1
+  }
+
+  setup_log "packaging $repo via ./$package_script"
+  if (cd "$repo_dir" && "./$package_script"); then
+    summary_add_ok "packaged $repo"
     return 0
   fi
 
-  summary_add_fail "failed to package term-webclient (run: cd $repo && ./release-scripts/mac/package.sh)"
+  summary_add_fail "failed to package $repo (run: cd $repo_dir && ./$package_script)"
   return 1
-}
-
-run_package_zenmind_app_server() {
-  local repo
-  repo="$(repo_source_dir "zenmind-app-server")"
-
-  setup_log "packaging zenmind-app-server via ./release-scripts/mac/package.sh"
-  if (cd "$repo" && ./release-scripts/mac/package.sh); then
-    summary_add_ok "packaged zenmind-app-server"
-    return 0
-  fi
-
-  summary_add_fail "failed to package zenmind-app-server (run: cd $repo && ./release-scripts/mac/package.sh)"
-  return 1
-}
-
-run_package_agent_platform_runner() {
-  local repo
-  repo="$(repo_source_dir "agent-platform-runner")"
-
-  setup_log "packaging agent-platform-runner via ./release-scripts/mac/package-local.sh"
-  if (cd "$repo" && ./release-scripts/mac/package-local.sh); then
-    summary_add_ok "packaged agent-platform-runner"
-    return 0
-  fi
-
-  summary_add_warn "failed to package agent-platform-runner, skip this optional service (run: cd $repo && ./release-scripts/mac/package-local.sh)"
-  return 0
 }
 
 run_package_all_repos() {
   local failed=0
+  local repo
 
-  run_package_term_webclient || failed=1
-  run_package_zenmind_app_server || failed=1
-  run_package_agent_platform_runner || failed=1
+  for repo in "${REPO_NAMES[@]}"; do
+    run_package_repo "$repo" || failed=1
+  done
 
   return "$failed"
 }
@@ -629,541 +652,216 @@ move_packaged_artifacts_for_repo() {
 
 move_packaged_artifacts_all() {
   local failed=0
-  local runner_packaged_dir
-  local runner_release_dir
+  local repo
 
-  move_packaged_artifacts_for_repo "term-webclient" || failed=1
-  move_packaged_artifacts_for_repo "zenmind-app-server" || failed=1
-
-  runner_packaged_dir="$(repo_packaged_output_dir "agent-platform-runner")"
-  runner_release_dir="$(repo_release_dir "agent-platform-runner")"
-  if [[ -d "$runner_packaged_dir" ]]; then
-    if [[ -e "$runner_release_dir" ]]; then
-      rm -rf "$runner_release_dir"
-    fi
-    mkdir -p "$(dirname "$runner_release_dir")"
-    if mv "$runner_packaged_dir" "$runner_release_dir"; then
-      summary_add_ok "moved package output to release: agent-platform-runner"
-    else
-      summary_add_warn "failed to move package output for optional service: agent-platform-runner"
-    fi
-  else
-    summary_add_warn "packaged output missing for optional service, skip move: $runner_packaged_dir"
-  fi
+  for repo in "${REPO_NAMES[@]}"; do
+    move_packaged_artifacts_for_repo "$repo" || failed=1
+  done
 
   return "$failed"
 }
 
-validate_release_artifacts_term_webclient() {
-  local release_repo
+validate_release_artifacts() {
+  local repo="$1"
+  local release_repo start_script stop_script
   local missing=()
-  local required file
-  local start_script
 
-  release_repo="$(repo_release_dir "term-webclient")"
-  start_script="$release_repo/release-scripts/mac/start.sh"
-  required=(
-    "$release_repo/backend/app.jar"
-    "$release_repo/frontend/server.js"
-    "$release_repo/frontend/dist/index.html"
-    "$start_script"
-  )
+  release_repo="$(repo_release_dir "$repo")"
+  start_script="$(repo_start_script_abs "$repo")"
+  stop_script="$(repo_stop_script_abs "$repo")"
 
-  for file in "${required[@]}"; do
-    [[ -f "$file" ]] || missing+=("$file")
-  done
+  [[ -d "$release_repo" ]] || missing+=("$release_repo")
+  [[ -f "$start_script" ]] || missing+=("$start_script")
+  [[ -f "$stop_script" ]] || missing+=("$stop_script")
 
   if ((${#missing[@]} > 0)); then
-    summary_add_fail "term-webclient release incomplete, missing: $(
-      IFS=', '
-      echo "${missing[*]}"
-    )"
+    summary_add_fail "$repo release incomplete, missing: $(IFS=', '; echo "${missing[*]}")"
     return 1
   fi
 
   if [[ ! -x "$start_script" ]]; then
-    summary_add_fail "term-webclient release start script is not executable: $start_script"
+    summary_add_fail "$repo release start script is not executable: $start_script"
+    return 1
+  fi
+
+  if [[ ! -x "$stop_script" ]]; then
+    summary_add_fail "$repo release stop script is not executable: $stop_script"
     return 1
   fi
 
   return 0
 }
 
-validate_release_artifacts_zenmind_app_server() {
+repo_running_state() {
+  local repo="$1"
   local release_repo
-  local missing=()
-  local required file
+  local running_count=0
+  local total_count=0
+  local pid_rel pid_file
+  local -a pid_rels=()
 
-  release_repo="$(repo_release_dir "zenmind-app-server")"
-  required=(
-    "$release_repo/docker-compose.yml"
-    "$release_repo/backend/app.jar"
-    "$release_repo/frontend/dist/index.html"
-  )
-
-  for file in "${required[@]}"; do
-    [[ -f "$file" ]] || missing+=("$file")
-  done
-
-  if ((${#missing[@]} > 0)); then
-    summary_add_fail "zenmind-app-server release incomplete, missing: $(
-      IFS=', '
-      echo "${missing[*]}"
-    )"
-    return 1
-  fi
-
-  return 0
-}
-
-validate_release_artifacts_agent_platform_runner() {
-  local release_repo
-  local missing=()
-  local required file
-
-  release_repo="$(repo_release_dir "agent-platform-runner")"
-  required=(
-    "$release_repo/app.jar"
-    "$release_repo/start.sh"
-  )
-
-  for file in "${required[@]}"; do
-    [[ -f "$file" ]] || missing+=("$file")
-  done
-
-  if ((${#missing[@]} > 0)); then
-    summary_add_warn "agent-platform-runner release incomplete, skip optional service: $(
-      IFS=', '
-      echo "${missing[*]}"
-    )"
-    return 0
-  fi
-
-  return 0
-}
-
-read_env_value_from_file() {
-  local file="$1"
-  local key="$2"
-
-  if [[ ! -f "$file" ]]; then
-    return 1
-  fi
-
-  awk -v key="$key" '
-    /^[[:space:]]*#/ { next }
-    /^[[:space:]]*$/ { next }
-    {
-      line=$0
-      sub(/^[[:space:]]+/, "", line)
-      eq=index(line, "=")
-      if (eq <= 0) {
-        next
-      }
-      k=substr(line, 1, eq - 1)
-      sub(/[[:space:]]+$/, "", k)
-      if (k != key) {
-        next
-      }
-      v=substr(line, eq + 1)
-      sub(/^[[:space:]]+/, "", v)
-      sub(/[[:space:]]+$/, "", v)
-      gsub(/^["'"'"']|["'"'"']$/, "", v)
-      print v
-      exit
-    }
-  ' "$file"
-}
-
-listening_processes_for_port() {
-  local port="$1"
-  lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {printf "%s(pid=%s) ", $1, $2}'
-}
-
-diagnose_term_webclient_start_failure() {
-  local release_repo="$1"
-  local env_file backend_log frontend_log
-  local backend_port frontend_port
-  local backend_listeners frontend_listeners
-  local port_conflict=0
-
-  env_file="$release_repo/.env"
-  backend_log="$release_repo/logs/backend.out"
-  frontend_log="$release_repo/logs/frontend.out"
-
-  backend_port="$(read_env_value_from_file "$env_file" "BACKEND_PORT" || true)"
-  frontend_port="$(read_env_value_from_file "$env_file" "FRONTEND_PORT" || true)"
-  if [[ -z "$frontend_port" ]]; then
-    frontend_port="$(read_env_value_from_file "$env_file" "PORT" || true)"
-  fi
-
-  backend_port="${backend_port:-11946}"
-  frontend_port="${frontend_port:-11947}"
-
-  if [[ -f "$backend_log" ]] && grep -Eiq 'Port[[:space:]]+[0-9]+[[:space:]]+was already in use|Address already in use' "$backend_log"; then
-    port_conflict=1
-  fi
-  if [[ -f "$frontend_log" ]] && grep -Eiq 'EADDRINUSE|address already in use' "$frontend_log"; then
-    port_conflict=1
-  fi
-
-  if [[ "$port_conflict" == "1" ]]; then
-    backend_listeners="$(listening_processes_for_port "$backend_port")"
-    frontend_listeners="$(listening_processes_for_port "$frontend_port")"
-    if [[ -n "$backend_listeners" ]]; then
-      summary_add_fail "term-webclient backend port ${backend_port} is in use by: ${backend_listeners}"
-    fi
-    if [[ -n "$frontend_listeners" ]]; then
-      summary_add_fail "term-webclient frontend port ${frontend_port} is in use by: ${frontend_listeners}"
-    fi
-    summary_add_fail "term-webclient port conflict detected; run stop, then release ports or change ports in release/term-webclient/.env"
-    return 0
-  fi
-
-  summary_add_warn "term-webclient start failed; check logs: $backend_log , $frontend_log"
-  return 0
-}
-
-start_term_webclient() {
-  local source_repo release_repo
-  local backend_pid frontend_pid
-  local backend_running=0 frontend_running=0
-
-  source_repo="$(repo_source_dir "term-webclient")"
-  release_repo="$(repo_release_dir "term-webclient")"
-  backend_pid="$release_repo/run/backend.pid"
-  frontend_pid="$release_repo/run/frontend.pid"
-
-  if [[ ! -d "$source_repo" ]]; then
-    summary_add_fail "term-webclient source repo missing: $source_repo"
-    return 1
-  fi
-
-  validate_release_artifacts_term_webclient || return 1
-
-  if setup_process_running_from_pid_file "$backend_pid"; then
-    backend_running=1
-  fi
-  if setup_process_running_from_pid_file "$frontend_pid"; then
-    frontend_running=1
-  fi
-
-  if [[ "$backend_running" == "1" && "$frontend_running" == "1" ]]; then
-    summary_add_ok "term-webclient already running"
-    return 0
-  fi
-
-  if [[ "$backend_running" == "1" || "$frontend_running" == "1" ]]; then
-    summary_add_warn "term-webclient partial running state detected, restart it (backend=$backend_running frontend=$frontend_running)"
-    if [[ -x "$release_repo/release-scripts/mac/stop.sh" ]]; then
-      if (cd "$release_repo" && ./release-scripts/mac/stop.sh); then
-        :
-      else
-        summary_add_warn "release-scripts/mac/stop.sh failed during restart recovery, fallback to pid stop"
-      fi
-    elif [[ -x "$source_repo/release-scripts/mac/stop.sh" ]]; then
-      if (cd "$source_repo" && ./release-scripts/mac/stop.sh); then
-        :
-      else
-        summary_add_warn "source release-scripts/mac/stop.sh failed during restart recovery, fallback to pid stop"
-      fi
-    fi
-    setup_stop_process_by_pid_file "$backend_pid" >/dev/null 2>&1 || true
-    setup_stop_process_by_pid_file "$frontend_pid" >/dev/null 2>&1 || true
-  fi
-
-  if [[ -x "$release_repo/release-scripts/mac/start.sh" ]]; then
-    setup_log "starting term-webclient via release/release-scripts/mac/start.sh"
-    if (cd "$release_repo" && ./release-scripts/mac/start.sh); then
-      summary_add_ok "start command completed: term-webclient"
-      return 0
-    fi
-  elif [[ -x "$source_repo/release-scripts/mac/start.sh" ]]; then
-    setup_log "starting term-webclient via source/release-scripts/mac/start.sh (fallback)"
-    if (cd "$source_repo" && ./release-scripts/mac/start.sh); then
-      summary_add_ok "start command completed: term-webclient"
-      return 0
-    fi
-  else
-    summary_add_fail "term-webclient start script missing (expected release/release-scripts/mac/start.sh)"
-    return 1
-  fi
-
-  diagnose_term_webclient_start_failure "$release_repo"
-  summary_add_fail "failed to start term-webclient"
-  return 1
-}
-
-start_zenmind_app_server() {
-  local source_repo release_repo
-
-  source_repo="$(repo_source_dir "zenmind-app-server")"
-  release_repo="$(repo_release_dir "zenmind-app-server")"
-
-  if [[ ! -d "$source_repo" ]]; then
-    summary_add_fail "zenmind-app-server source repo missing: $source_repo"
-    return 1
-  fi
-
-  validate_release_artifacts_zenmind_app_server || return 1
-
-  if ! setup_prepare_docker_alias; then
-    summary_add_fail "docker command unavailable (install Docker, or install podman and map docker to podman)"
-    return 1
-  fi
-
-  if ! docker compose version >/dev/null 2>&1; then
-    summary_add_fail "docker compose unavailable; if using podman, install podman-compose"
-    return 1
-  fi
-
-  if ! setup_docker_daemon_running; then
-    summary_add_fail "docker runtime not ready; if using podman alias run: podman machine start"
-    return 1
-  fi
-
-  setup_log "starting zenmind-app-server via release/docker compose up -d --build"
-  if (cd "$release_repo" && docker compose up -d --build); then
-    summary_add_ok "start command completed: zenmind-app-server"
-    return 0
-  fi
-
-  summary_add_fail "failed to start zenmind-app-server"
-  return 1
-}
-
-start_agent_platform_runner() {
-  local source_repo release_repo
-  local pid_file
-
-  source_repo="$(repo_source_dir "agent-platform-runner")"
-  release_repo="$(repo_release_dir "agent-platform-runner")"
-  pid_file="$release_repo/app.pid"
-
-  if [[ ! -d "$source_repo" ]]; then
-    summary_add_warn "agent-platform-runner source repo missing, skip optional service: $source_repo"
-    return 0
-  fi
-
-  validate_release_artifacts_agent_platform_runner || return 1
-
-  if setup_process_running_from_pid_file "$pid_file"; then
-    summary_add_ok "agent-platform-runner already running"
-    return 0
-  fi
-
-  if [[ -x "$release_repo/start.sh" ]]; then
-    setup_log "starting agent-platform-runner via release/start.sh -d"
-    if (cd "$release_repo" && ./start.sh -d); then
-      summary_add_ok "start command completed: agent-platform-runner"
-      return 0
-    fi
-  elif [[ -x "$source_repo/release-scripts/mac/start-local.sh" ]]; then
-    setup_log "starting agent-platform-runner via source/release-scripts/mac/start-local.sh -d (fallback)"
-    if (cd "$source_repo" && ./release-scripts/mac/start-local.sh -d); then
-      summary_add_ok "start command completed: agent-platform-runner"
-      return 0
-    fi
-  else
-    summary_add_warn "agent-platform-runner start script missing, skip optional service (expected release/start.sh)"
-    return 0
-  fi
-
-  summary_add_warn "failed to start agent-platform-runner, skip optional service"
-  return 0
-}
-
-stop_agent_platform_runner() {
-  local source_repo release_repo
-  local pid_file
-
-  source_repo="$(repo_source_dir "agent-platform-runner")"
-  release_repo="$(repo_release_dir "agent-platform-runner")"
-  pid_file="$release_repo/app.pid"
-
-  if [[ ! -d "$source_repo" ]]; then
-    summary_add_warn "agent-platform-runner source repo not found, skip stop"
-    return 0
-  fi
-
-  if [[ -x "$release_repo/stop.sh" ]]; then
-    if (cd "$release_repo" && ./stop.sh); then
-      summary_add_ok "stop command completed: agent-platform-runner"
-      return 0
-    fi
-    summary_add_warn "release stop.sh failed, fallback to pid stop"
-  elif [[ -x "$source_repo/release-scripts/mac/stop-local.sh" ]]; then
-    if (cd "$source_repo" && ./release-scripts/mac/stop-local.sh); then
-      summary_add_ok "stop command completed: agent-platform-runner"
-      return 0
-    fi
-    summary_add_warn "source release-scripts/mac/stop-local.sh failed, fallback to pid stop"
-  fi
-
-  if setup_stop_process_by_pid_file "$pid_file"; then
-    summary_add_ok "stopped by pid: agent-platform-runner"
-    return 0
-  fi
-
-  summary_add_warn "agent-platform-runner is not running"
-  return 0
-}
-
-stop_zenmind_app_server() {
-  local source_repo release_repo
-
-  source_repo="$(repo_source_dir "zenmind-app-server")"
-  release_repo="$(repo_release_dir "zenmind-app-server")"
-
-  if [[ ! -d "$source_repo" ]]; then
-    summary_add_warn "zenmind-app-server source repo not found, skip stop"
-    return 0
-  fi
-
+  release_repo="$(repo_release_dir "$repo")"
   if [[ ! -d "$release_repo" ]]; then
-    summary_add_warn "zenmind-app-server release dir not found, skip stop"
+    printf '0 0\n'
     return 0
   fi
 
-  if ! setup_prepare_docker_alias; then
-    summary_add_warn "docker command unavailable (and podman alias not ready), skip stop: zenmind-app-server"
-    return 0
-  fi
+  mapfile -t pid_rels < <(repo_pid_files "$repo")
+  total_count="${#pid_rels[@]}"
 
-  if ! docker compose version >/dev/null 2>&1; then
-    summary_add_warn "docker compose unavailable, skip stop: zenmind-app-server"
-    return 0
-  fi
+  for pid_rel in "${pid_rels[@]}"; do
+    pid_file="$release_repo/$pid_rel"
+    if setup_process_running_from_pid_file "$pid_file"; then
+      running_count=$((running_count + 1))
+    fi
+  done
 
-  if ! setup_docker_daemon_running; then
-    summary_add_warn "docker runtime not ready, skip stop: zenmind-app-server"
-    return 0
-  fi
-
-  if (cd "$release_repo" && docker compose stop); then
-    summary_add_ok "stop command completed: zenmind-app-server"
-    return 0
-  fi
-
-  summary_add_fail "failed to stop zenmind-app-server"
-  return 1
+  printf '%s %s\n' "$running_count" "$total_count"
 }
 
-stop_term_webclient() {
-  local source_repo release_repo
-  local backend_pid frontend_pid
+kill_repo_pids_fallback() {
+  local repo="$1"
+  local release_repo pid_rel pid_file
   local stopped_any=0
+  local -a pid_rels=()
 
-  source_repo="$(repo_source_dir "term-webclient")"
-  release_repo="$(repo_release_dir "term-webclient")"
-  backend_pid="$release_repo/run/backend.pid"
-  frontend_pid="$release_repo/run/frontend.pid"
+  release_repo="$(repo_release_dir "$repo")"
+  mapfile -t pid_rels < <(repo_pid_files "$repo")
 
-  if [[ ! -d "$source_repo" ]]; then
-    summary_add_warn "term-webclient source repo not found, skip stop"
-    return 0
-  fi
-
-  if [[ -x "$release_repo/release-scripts/mac/stop.sh" ]]; then
-    if (cd "$release_repo" && ./release-scripts/mac/stop.sh); then
-      summary_add_ok "stop command completed: term-webclient"
-      return 0
+  for pid_rel in "${pid_rels[@]}"; do
+    pid_file="$release_repo/$pid_rel"
+    if setup_stop_process_by_pid_file "$pid_file"; then
+      stopped_any=1
     fi
-    summary_add_warn "release-scripts/mac/stop.sh failed, fallback to pid stop"
-  elif [[ -x "$source_repo/release-scripts/mac/stop.sh" ]]; then
-    if (cd "$source_repo" && ./release-scripts/mac/stop.sh); then
-      summary_add_ok "stop command completed: term-webclient"
-      return 0
-    fi
-    summary_add_warn "source release-scripts/mac/stop.sh failed, fallback to pid stop"
-  fi
-
-  if setup_stop_process_by_pid_file "$backend_pid"; then
-    summary_add_ok "stopped backend process by pid"
-    stopped_any=1
-  fi
-
-  if setup_stop_process_by_pid_file "$frontend_pid"; then
-    summary_add_ok "stopped frontend process by pid"
-    stopped_any=1
-  fi
+  done
 
   if [[ "$stopped_any" == "1" ]]; then
-    return 0
+    summary_add_warn "$repo stop fallback used: stopped by pid files"
   fi
-
-  summary_add_warn "term-webclient is not running"
-  return 0
 }
 
-collect_running_compose_services() {
-  local release_repo="$1"
-  local services ps_output
+start_repo() {
+  local repo="$1"
+  local source_repo release_repo
+  local state running_count total_count
 
-  services="$(cd "$release_repo" && docker compose ps --status running --services 2>/dev/null || true)"
-  if [[ -n "$services" ]]; then
-    printf '%s\n' "$services"
+  source_repo="$(repo_source_dir "$repo")"
+  release_repo="$(repo_release_dir "$repo")"
+
+  if [[ ! -d "$source_repo" ]]; then
+    summary_add_fail "$repo source repo missing: $source_repo"
+    return 1
+  fi
+
+  validate_release_artifacts "$repo" || return 1
+
+  state="$(repo_running_state "$repo")"
+  running_count="${state%% *}"
+  total_count="${state##* }"
+
+  if [[ "$running_count" == "$total_count" && "$total_count" != "0" ]]; then
+    summary_add_ok "$repo already running"
     return 0
   fi
 
-  services="$(cd "$release_repo" && docker compose ps --services 2>/dev/null || true)"
-  if [[ -n "$services" ]]; then
-    printf '%s\n' "$services"
+  if [[ "$running_count" != "0" ]]; then
+    summary_add_warn "$repo partial running state detected, restart it ($running_count/$total_count)"
+    if (cd "$release_repo" && ./release-scripts/mac/stop.sh); then
+      :
+    else
+      summary_add_warn "$repo stop script failed during restart recovery, fallback to pid stop"
+    fi
+    kill_repo_pids_fallback "$repo"
+  fi
+
+  setup_log "starting $repo via release-scripts/mac/start.sh"
+  if (cd "$release_repo" && ./release-scripts/mac/start.sh); then
+    summary_add_ok "start command completed: $repo"
     return 0
   fi
 
-  ps_output="$(cd "$release_repo" && docker compose ps 2>/dev/null || true)"
-  if [[ -n "$ps_output" ]] && printf '%s\n' "$ps_output" | grep -Eiq '\b(up|running|healthy)\b'; then
-    printf '%s\n' "$ps_output"
+  summary_add_fail "failed to start $repo"
+  return 1
+}
+
+stop_repo() {
+  local repo="$1"
+  local source_repo release_repo state running_count total_count
+
+  source_repo="$(repo_source_dir "$repo")"
+  release_repo="$(repo_release_dir "$repo")"
+
+  if [[ ! -d "$source_repo" ]]; then
+    summary_add_fail "$repo source repo not found, cannot stop"
+    return 1
+  fi
+
+  validate_release_artifacts "$repo" || return 1
+
+  state="$(repo_running_state "$repo")"
+  running_count="${state%% *}"
+  total_count="${state##* }"
+
+  if [[ "$running_count" == "0" ]]; then
+    summary_add_warn "$repo is not running"
     return 0
   fi
 
+  if (cd "$release_repo" && ./release-scripts/mac/stop.sh); then
+    state="$(repo_running_state "$repo")"
+    running_count="${state%% *}"
+    if [[ "$running_count" == "0" ]]; then
+      summary_add_ok "stop command completed: $repo"
+      return 0
+    fi
+
+    summary_add_warn "$repo stop script returned success but processes are still alive, fallback to pid stop"
+    kill_repo_pids_fallback "$repo"
+  else
+    summary_add_warn "$repo stop script failed, fallback to pid stop"
+    kill_repo_pids_fallback "$repo"
+  fi
+
+  state="$(repo_running_state "$repo")"
+  running_count="${state%% *}"
+  total_count="${state##* }"
+
+  if [[ "$running_count" == "0" ]]; then
+    summary_add_ok "stop completed after fallback: $repo"
+    return 0
+  fi
+
+  summary_add_fail "failed to stop $repo (still running: $running_count/$total_count)"
   return 1
 }
 
 health_check_after_start() {
   local failed=0
-  local term_release app_release agent_release
-  local running_services
+  local repo state running_count total_count
 
-  term_release="$(repo_release_dir "term-webclient")"
-  app_release="$(repo_release_dir "zenmind-app-server")"
-  agent_release="$(repo_release_dir "agent-platform-runner")"
+  for repo in "${REQUIRED_START_ORDER[@]}"; do
+    state="$(repo_running_state "$repo")"
+    running_count="${state%% *}"
+    total_count="${state##* }"
 
-  if setup_process_running_from_pid_file "$term_release/run/backend.pid" &&
-    setup_process_running_from_pid_file "$term_release/run/frontend.pid"; then
-    summary_add_ok "health check passed: term-webclient backend/frontend pids alive"
-  else
-    summary_add_fail "health check failed: term-webclient process not fully running"
-    failed=1
-  fi
-
-  if [[ -d "$app_release" ]] &&
-    setup_prepare_docker_alias &&
-    docker compose version >/dev/null 2>&1 &&
-    setup_docker_daemon_running; then
-    if running_services="$(collect_running_compose_services "$app_release")"; then
-      summary_add_ok "health check passed: zenmind-app-server has running compose services"
+    if [[ "$running_count" == "$total_count" && "$total_count" != "0" ]]; then
+      if [[ "$repo" == "term-webclient" ]]; then
+        summary_add_ok "health check passed: term-webclient backend/frontend pids alive"
+      else
+        summary_add_ok "health check passed: $repo app pid alive"
+      fi
     else
-      summary_add_fail "health check failed: zenmind-app-server has no running compose service"
+      summary_add_fail "health check failed: $repo process not fully running ($running_count/$total_count)"
       failed=1
     fi
-  else
-    summary_add_fail "health check failed: zenmind-app-server compose status unavailable"
-    failed=1
-  fi
-
-  if setup_process_running_from_pid_file "$agent_release/app.pid"; then
-    summary_add_ok "health check passed: agent-platform-runner pid alive"
-  else
-    summary_add_warn "health check skipped: agent-platform-runner not running (optional service)"
-  fi
+  done
 
   return "$failed"
 }
 
 run_first_install() {
   local failed=0
+  local repo
 
   ensure_workspace_layout
   setup_log "workspace base dir: $BASE_DIR"
@@ -1179,9 +877,9 @@ run_first_install() {
 
   setup_show_first_install_password_notice
 
-  refresh_repo_by_clone "${REPO_NAMES[0]}" "${REPO_URLS[0]}" || failed=1
-  refresh_repo_by_clone "${REPO_NAMES[1]}" "${REPO_URLS[1]}" || failed=1
-  refresh_repo_by_clone "${REPO_NAMES[2]}" "${REPO_URLS[2]}" || failed=1
+  for repo in "${REPO_NAMES[@]}"; do
+    refresh_repo_by_clone "$repo" "$(repo_url "$repo")" || failed=1
+  done
 
   check_required_repo_files || failed=1
   run_package_all_repos || failed=1
@@ -1204,6 +902,7 @@ run_first_install() {
 
 run_update() {
   local failed=0
+  local repo
 
   ensure_workspace_layout
   setup_log "update mode: refresh clone + package + move"
@@ -1217,9 +916,9 @@ run_update() {
 
   backup_update_configs || failed=1
 
-  refresh_repo_by_clone "${REPO_NAMES[0]}" "${REPO_URLS[0]}" || failed=1
-  refresh_repo_by_clone "${REPO_NAMES[1]}" "${REPO_URLS[1]}" || failed=1
-  refresh_repo_by_clone "${REPO_NAMES[2]}" "${REPO_URLS[2]}" || failed=1
+  for repo in "${REPO_NAMES[@]}"; do
+    refresh_repo_by_clone "$repo" "$(repo_url "$repo")" || failed=1
+  done
 
   check_required_repo_files || failed=1
   run_package_all_repos || failed=1
@@ -1239,14 +938,15 @@ run_update() {
 
 run_start() {
   local failed=0
+  local repo
 
   if ! check_runtime_environment_before_start; then
     return 1
   fi
 
-  start_term_webclient || failed=1
-  start_zenmind_app_server || failed=1
-  start_agent_platform_runner || failed=1
+  for repo in "${REQUIRED_START_ORDER[@]}"; do
+    start_repo "$repo" || failed=1
+  done
   health_check_after_start || failed=1
 
   if [[ "$failed" == "0" ]]; then
@@ -1259,10 +959,11 @@ run_start() {
 
 run_stop() {
   local failed=0
+  local repo
 
-  stop_agent_platform_runner || failed=1
-  stop_zenmind_app_server || failed=1
-  stop_term_webclient || failed=1
+  for repo in "${REQUIRED_STOP_ORDER[@]}"; do
+    stop_repo "$repo" || failed=1
+  done
 
   if [[ "$failed" == "0" ]]; then
     summary_add_ok "stop completed"

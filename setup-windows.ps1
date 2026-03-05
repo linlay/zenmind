@@ -130,6 +130,11 @@ if ($Help -or $Action -in @('help', '--help', '-h', '/?')) {
   exit 0
 }
 
+Write-Host '[setup-win] ERROR: Windows setup is temporarily disabled for the new deployment topology.'
+Write-Host '[setup-win] 当前新部署拓扑仅支持 mac，Windows 暂未实现。'
+Write-Host '[setup-win] Please use mac setup: ./setup-mac.sh --action precheck'
+exit 1
+
 if (-not [string]::IsNullOrWhiteSpace($Action)) {
   $allowedActions = @('precheck', 'first-install', 'update', 'start', 'stop', 'reset-password-hash')
   if ($allowedActions -notcontains $Action) {
