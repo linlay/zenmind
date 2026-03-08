@@ -10,18 +10,18 @@ ZenMind is a multi-repository hub for AI agent workflow services.
 ## Deployment Baseline (2026-03)
 
 - macOS is the only supported deployment path in this phase.
-- Windows setup is intentionally fail-fast as a placeholder.
+- Windows setup remains intentionally fail-fast as a placeholder.
 - `docs/media/zenmind-overview.svg` is not updated in this round.
 
 ## Projects (5)
 
 | Project | Status | Description |
 |---|---|---|
-| [agent-platform-runner](https://github.com/linlay/agent-platform-runner) | Integrated | Agent runtime service (required) |
-| [agent-platform-admin](https://github.com/linlay/agent-platform-admin) | Placeholder | Not implemented in this round |
-| [mcp-server-mock](https://github.com/linlay/mcp-server-mock) | Integrated | Go backend service (required) |
-| [zenmind-app-server](https://github.com/linlay/zenmind-app-server) | Integrated | Go backend service (required) |
-| [term-webclient](https://github.com/linlay/term-webclient) | Integrated | Non-container startup, Java process (required) |
+| [zenmind-gateway](https://github.com/linlay/zenmind-gateway) | Integrated | Gateway service |
+| [zenmind-app-server](https://github.com/linlay/zenmind-app-server) | Integrated | Application backend service |
+| [mcp-server-mock](https://github.com/linlay/mcp-server-mock) | Integrated | Mock MCP service |
+| [mcp-server-bash](https://github.com/linlay/mcp-server-bash) | Integrated | Bash MCP service |
+| [mcp-server-email](https://github.com/linlay/mcp-server-email) | Integrated | Email MCP service |
 
 ## Mac Entry
 
@@ -37,37 +37,61 @@ Non-interactive actions:
 ./setup-mac.sh --action update
 ./setup-mac.sh --action start
 ./setup-mac.sh --action stop
+./setup-mac.sh --action configure-startup
 ./setup-mac.sh --action reset-password-hash
 ```
 
+## Startup List Configuration
+
+- Startup list file: `config/startup-services.conf`
+- Format: plain text, one service per line
+- Blank lines and `#` comments are ignored
+- Line order defines startup order; stop order is the reverse automatically
+- Default order:
+  - `zenmind-gateway`
+  - `zenmind-app-server`
+  - `mcp-server-mock`
+  - `mcp-server-bash`
+  - `mcp-server-email`
+- If the file is missing, `setup-mac.sh` initializes it automatically with the default order
+
+New interactive menu item:
+
+- `6) Configure startup list`
+
+This action prompts whether each service should be enabled and rewrites `config/startup-services.conf`.
+
 ## Runtime Contract
 
-- CLI actions remain unchanged: `precheck | first-install | update | start | stop | reset-password-hash`
-- Required start order: `zenmind-app-server -> mcp-server-mock -> agent-platform-runner -> term-webclient`
-- Stop order is reversed: `term-webclient -> agent-platform-runner -> mcp-server-mock -> zenmind-app-server`
-- Health checks rely on PID liveness:
-- `term-webclient`: `run/backend.pid` + `run/frontend.pid`
-- Other services: `run/app.pid`
-- Any required service failure causes `start` to fail.
+- CLI actions: `precheck | first-install | update | start | stop | configure-startup | reset-password-hash`
+- `start` no longer always starts every managed service; it reads and starts only the services listed in `config/startup-services.conf`
+- `stop` stops only the enabled services from `config/startup-services.conf`, in reverse order
+- Health checks rely on `run/app.pid`
+- The script fails fast when `startup-services.conf` contains an unknown service, a duplicate service, or no enabled services
+- Any enabled service failure causes `start` to fail
 
 ## Install / Update Flow
 
 `first-install` and `update` now:
 
-- clone 4 active repositories into `source/<repo>`
-- execute each repo `release-scripts/mac/package*.sh`
+- clone 5 active repositories into `source/<repo>`
+  - `zenmind-gateway`
+  - `zenmind-app-server`
+  - `mcp-server-mock`
+  - `mcp-server-bash`
+  - `mcp-server-email`
+- execute each repo `release-scripts/mac/package.sh`
 - move packaged outputs into `release/<repo>`
-- copy required config examples (missing file = failure):
-- `source/term-webclient/.env.example -> release/term-webclient/.env`
-- `source/term-webclient/application.example.yml -> release/term-webclient/application.yml`
-- `source/zenmind-app-server/.env.example -> release/zenmind-app-server/.env`
-- `source/agent-platform-runner/application.example.yml -> release/agent-platform-runner/application.yml`
-- `source/mcp-server-mock/.env.example -> release/mcp-server-mock/.env`
+- copy the currently defined required config examples:
+  - `source/zenmind-app-server/.env.example -> release/zenmind-app-server/.env`
+  - `source/mcp-server-mock/.env.example -> release/mcp-server-mock/.env`
+- auto-create `config/startup-services.conf` with the default list if it does not exist
 
-Password-hash injection is preserved for term + app:
+Password hash injection remains for:
 
-- `release/term-webclient/.env`: `AUTH_PASSWORD_HASH_BCRYPT`
-- `release/zenmind-app-server/.env`: `AUTH_ADMIN_PASSWORD_BCRYPT`, `AUTH_APP_MASTER_PASSWORD_BCRYPT`
+- `release/zenmind-app-server/.env`
+  - `AUTH_ADMIN_PASSWORD_BCRYPT`
+  - `AUTH_APP_MASTER_PASSWORD_BCRYPT`
 
 ## macOS Requirements
 
@@ -82,12 +106,12 @@ Password-hash injection is preserved for term + app:
 
 Notes:
 
-- Docker/Compose is no longer a mandatory dependency for this topology.
-- Runtime mode no longer checks Docker daemon; nginx remains optional.
+- Docker/Compose is still not a mandatory dependency for this setup repo.
+- Runtime mode follows whatever runtime checks are defined in the environment check script.
 
 ## Windows Placeholder
 
-The following command is expected to fail-fast:
+The following command is still expected to fail-fast:
 
 ```powershell
 .\setup-windows.ps1 -Action precheck

@@ -14,38 +14,34 @@ UPDATE_CONFIG_BACKUP_DIR=""
 
 readonly SOURCE_SUBDIR="source"
 readonly RELEASE_SUBDIR="release"
+readonly CONFIG_SUBDIR="config"
+readonly STARTUP_CONF_NAME="startup-services.conf"
 
-readonly REPO_NAMES=(
-  "term-webclient"
+readonly MANAGED_REPOS=(
+  "zenmind-gateway"
   "zenmind-app-server"
-  "agent-platform-runner"
   "mcp-server-mock"
+  "mcp-server-bash"
+  "mcp-server-email"
 )
-readonly REQUIRED_START_ORDER=(
+readonly DEFAULT_STARTUP_ORDER=(
+  "zenmind-gateway"
   "zenmind-app-server"
   "mcp-server-mock"
-  "agent-platform-runner"
-  "term-webclient"
-)
-readonly REQUIRED_STOP_ORDER=(
-  "term-webclient"
-  "agent-platform-runner"
-  "mcp-server-mock"
-  "zenmind-app-server"
+  "mcp-server-bash"
+  "mcp-server-email"
 )
 
 # format: source|target|required
 readonly CONFIG_MAPPINGS=(
-  "source/term-webclient/.env.example|release/term-webclient/.env|true"
-  "source/term-webclient/application.example.yml|release/term-webclient/application.yml|true"
   "source/zenmind-app-server/.env.example|release/zenmind-app-server/.env|true"
-  "source/agent-platform-runner/application.example.yml|release/agent-platform-runner/application.yml|true"
   "source/mcp-server-mock/.env.example|release/mcp-server-mock/.env|true"
 )
 
 SUMMARY_OK=()
 SUMMARY_WARN=()
 SUMMARY_FAIL=()
+STARTUP_SERVICES=()
 
 workspace_source_dir() {
   printf '%s/%s\n' "$BASE_DIR" "$SOURCE_SUBDIR"
@@ -53,6 +49,14 @@ workspace_source_dir() {
 
 workspace_release_dir() {
   printf '%s/%s\n' "$BASE_DIR" "$RELEASE_SUBDIR"
+}
+
+workspace_config_dir() {
+  printf '%s/%s\n' "$BASE_DIR" "$CONFIG_SUBDIR"
+}
+
+startup_config_path() {
+  printf '%s/%s\n' "$(workspace_config_dir)" "$STARTUP_CONF_NAME"
 }
 
 repo_source_dir() {
@@ -73,11 +77,8 @@ repo_url() {
 repo_packaged_output_dir() {
   local repo="$1"
   case "$repo" in
-  term-webclient | zenmind-app-server | mcp-server-mock)
+  zenmind-gateway | zenmind-app-server | mcp-server-mock | mcp-server-bash | mcp-server-email)
     printf '%s/release\n' "$(repo_source_dir "$repo")"
-    ;;
-  agent-platform-runner)
-    printf '%s/release-local\n' "$(repo_source_dir "$repo")"
     ;;
   *)
     return 1
@@ -88,11 +89,8 @@ repo_packaged_output_dir() {
 repo_package_script_rel() {
   local repo="$1"
   case "$repo" in
-  term-webclient | zenmind-app-server | mcp-server-mock)
+  zenmind-gateway | zenmind-app-server | mcp-server-mock | mcp-server-bash | mcp-server-email)
     printf 'release-scripts/mac/package.sh\n'
-    ;;
-  agent-platform-runner)
-    printf 'release-scripts/mac/package-local.sh\n'
     ;;
   *)
     return 1
@@ -103,11 +101,11 @@ repo_package_script_rel() {
 repo_pid_files() {
   local repo="$1"
   case "$repo" in
-  term-webclient)
-    printf '%s\n' "run/backend.pid" "run/frontend.pid"
+  zenmind-gateway | zenmind-app-server | mcp-server-mock | mcp-server-bash | mcp-server-email)
+    printf '%s\n' "run/app.pid"
     ;;
   *)
-    printf '%s\n' "run/app.pid"
+    return 1
     ;;
   esac
 }
@@ -123,7 +121,7 @@ repo_stop_script_abs() {
 }
 
 ensure_workspace_layout() {
-  mkdir -p "$BASE_DIR" "$(workspace_source_dir)" "$(workspace_release_dir)"
+  mkdir -p "$BASE_DIR" "$(workspace_source_dir)" "$(workspace_release_dir)" "$(workspace_config_dir)"
 }
 
 usage() {
@@ -136,13 +134,14 @@ Interactive menu (default):
   3) 更新
   4) 启动
   5) 停止
-  6) 重置密码哈希
+  6) 配置启动列表
+  7) 重置密码哈希
   0) 退出
 
 Options:
-  --action      precheck | first-install | update | start | stop | reset-password-hash
+  --action      precheck | first-install | update | start | stop | configure-startup | reset-password-hash
   --base-dir    工作区根目录（默认: ${SCRIPT_DIR}）
-  --yes         非交互模式（密码提示使用默认值）
+  --yes         非交互模式（密码提示使用默认值，配置启动列表时写入默认顺序）
   --show-plain-password  调试模式：输出输入明文密码（请勿用于共享终端）
   -h, --help    显示帮助
 USAGE
@@ -192,7 +191,7 @@ parse_args() {
   done
 
   case "$ACTION" in
-  "" | precheck | first-install | update | start | stop | reset-password-hash) ;;
+  "" | precheck | first-install | update | start | stop | configure-startup | reset-password-hash) ;;
   *)
     setup_err "invalid action: $ACTION"
     usage
@@ -264,7 +263,7 @@ print_summary() {
   - Run precheck first: ./setup-mac.sh --action precheck
   - Install dependencies: brew install git go openjdk@21 maven node@20
   - Ensure Go version is 1.26.0 or newer
-  - Verify each service repo has release-scripts/mac/package*.sh and release-scripts/mac/start.sh/stop.sh
+  - Verify each service repo has release-scripts/mac/package.sh and release-scripts/mac/start.sh/stop.sh
 HINT
   fi
 }
@@ -326,7 +325,7 @@ check_required_repo_files() {
   local failed=0
   local repo package_script
 
-  for repo in "${REPO_NAMES[@]}"; do
+  for repo in "${MANAGED_REPOS[@]}"; do
     check_repo_file "$repo" "README.md" || failed=1
     package_script="$(repo_package_script_rel "$repo")" || {
       summary_add_fail "unsupported repo for package script: $repo"
@@ -413,7 +412,7 @@ copy_example_configs() {
 
     if [[ -f "$target_path" ]]; then
       if [[ "$mode" == "if-missing" ]]; then
-        summary_add_ok "config exists, keep: $target_rel"
+        summary_add_ok "config exists, keep: ${target_path#$BASE_DIR/}"
         continue
       fi
 
@@ -431,7 +430,7 @@ copy_example_configs() {
       if [[ "$display_source" == "$actual_source" ]]; then
         display_source="$actual_source"
       fi
-      summary_add_ok "copied config: ${display_source} -> ${target_rel}"
+      summary_add_ok "copied config: ${display_source} -> ${target_path#$BASE_DIR/}"
     else
       summary_add_fail "failed to copy config: ${source_rel} -> ${target_rel}"
       failed=1
@@ -514,23 +513,153 @@ cleanup_update_config_backup() {
   UPDATE_CONFIG_BACKUP_DIR=""
 }
 
-configure_password_hashes() {
-  local term_env app_env
-  local term_plain app_admin_plain app_master_plain
-  local term_hash app_admin_hash app_master_hash
+is_managed_repo() {
+  local candidate="$1"
+  local repo
 
-  term_env="$(repo_release_dir "term-webclient")/.env"
+  for repo in "${MANAGED_REPOS[@]}"; do
+    if [[ "$repo" == "$candidate" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+trim_whitespace() {
+  local value="$1"
+
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s\n' "$value"
+}
+
+write_startup_config() {
+  local services=("$@")
+  local config_file tmp_file service
+
+  if ((${#services[@]} == 0)); then
+    summary_add_fail "startup service list cannot be empty"
+    return 1
+  fi
+
+  config_file="$(startup_config_path)"
+  mkdir -p "$(dirname "$config_file")"
+  tmp_file="$(mktemp "${TMPDIR:-/tmp}/zenmind-startup.XXXXXX")" || {
+    summary_add_fail "failed to create temp startup config file"
+    return 1
+  }
+
+  {
+    printf '# Managed by setup-mac.sh\n'
+    printf '# One service per line. Order defines startup sequence.\n'
+    for service in "${services[@]}"; do
+      printf '%s\n' "$service"
+    done
+  } >"$tmp_file"
+
+  if mv "$tmp_file" "$config_file"; then
+    summary_add_ok "wrote startup config: $config_file"
+    return 0
+  fi
+
+  rm -f "$tmp_file"
+  summary_add_fail "failed to write startup config: $config_file"
+  return 1
+}
+
+ensure_startup_config_exists() {
+  local config_file
+
+  config_file="$(startup_config_path)"
+  if [[ -f "$config_file" ]]; then
+    return 0
+  fi
+
+  summary_add_warn "startup config missing, initialize with default order: $config_file"
+  write_startup_config "${DEFAULT_STARTUP_ORDER[@]}" || return 1
+  return 0
+}
+
+load_startup_services() {
+  local config_file raw_line service
+  local duplicate_key=""
+  STARTUP_SERVICES=()
+
+  ensure_startup_config_exists || return 1
+  config_file="$(startup_config_path)"
+
+  while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+    service="$(trim_whitespace "$raw_line")"
+    if [[ -z "$service" || "$service" == \#* ]]; then
+      continue
+    fi
+
+    if ! is_managed_repo "$service"; then
+      summary_add_fail "unknown service in startup config: $service"
+      return 1
+    fi
+
+    duplicate_key=" ${STARTUP_SERVICES[*]} "
+    if [[ "$duplicate_key" == *" $service "* ]]; then
+      summary_add_fail "duplicate service in startup config: $service"
+      return 1
+    fi
+
+    STARTUP_SERVICES+=("$service")
+  done <"$config_file"
+
+  if ((${#STARTUP_SERVICES[@]} == 0)); then
+    summary_add_fail "startup config has no enabled services: $config_file"
+    return 1
+  fi
+
+  summary_add_ok "loaded startup config: $config_file"
+  return 0
+}
+
+configure_startup_services_interactive() {
+  local selected=()
+  local repo answer prompt
+
+  echo
+  setup_log "configure startup services (default order shown below)"
+  for repo in "${DEFAULT_STARTUP_ORDER[@]}"; do
+    prompt="[setup-mac] enable ${repo}? [Y/n]: "
+    read -r -p "$prompt" answer
+    answer="$(trim_whitespace "$answer")"
+    case "$answer" in
+    "" | y | Y | yes | YES | Yes)
+      selected+=("$repo")
+      ;;
+    n | N | no | NO | No)
+      ;;
+    *)
+      setup_warn "invalid input '$answer', treat as yes for ${repo}"
+      selected+=("$repo")
+      ;;
+    esac
+  done
+
+  if ((${#selected[@]} == 0)); then
+    summary_add_fail "at least one service must be enabled"
+    return 1
+  fi
+
+  write_startup_config "${selected[@]}" || return 1
+  summary_add_ok "startup services configured: ${selected[*]}"
+  return 0
+}
+
+configure_password_hashes() {
+  local app_env
+  local app_admin_plain app_master_plain
+  local app_admin_hash app_master_hash
+
   app_env="$(repo_release_dir "zenmind-app-server")/.env"
 
   setup_log "configuring bcrypt password hashes in release env files"
-
-  setup_ensure_env_file "$term_env"
   setup_ensure_env_file "$app_env"
-
-  term_plain="$(setup_prompt_password "term-webclient AUTH_PASSWORD_HASH_BCRYPT 对应明文密码" "password")"
-  term_hash="$(setup_generate_bcrypt "$term_plain")" || return 1
-  setup_upsert_env_var "$term_env" "AUTH_PASSWORD_HASH_BCRYPT" "$(setup_single_quote_env_value "$term_hash")" || return 1
-  summary_add_ok "updated AUTH_PASSWORD_HASH_BCRYPT in release/term-webclient/.env"
 
   app_admin_plain="$(setup_prompt_password "zenmind-app-server AUTH_ADMIN_PASSWORD_BCRYPT 对应明文密码" "password")"
   app_admin_hash="$(setup_generate_bcrypt "$app_admin_plain")" || return 1
@@ -545,13 +674,25 @@ configure_password_hashes() {
   return 0
 }
 
-run_reset_password_hash() {
-  local term_release app_release
+run_configure_startup() {
+  ensure_workspace_layout
 
-  term_release="$(repo_release_dir "term-webclient")"
+  if [[ "$NON_INTERACTIVE" == "1" ]]; then
+    write_startup_config "${DEFAULT_STARTUP_ORDER[@]}" || return 1
+    summary_add_ok "startup services configured with default order"
+    return 0
+  fi
+
+  configure_startup_services_interactive || return 1
+  return 0
+}
+
+run_reset_password_hash() {
+  local app_release
+
   app_release="$(repo_release_dir "zenmind-app-server")"
-  if [[ ! -d "$term_release" || ! -d "$app_release" ]]; then
-    summary_add_fail "release dirs missing, run first-install/update first: $term_release, $app_release"
+  if [[ ! -d "$app_release" ]]; then
+    summary_add_fail "release dir missing, run first-install/update first: $app_release"
     return 1
   fi
 
@@ -614,7 +755,7 @@ run_package_all_repos() {
   local failed=0
   local repo
 
-  for repo in "${REPO_NAMES[@]}"; do
+  for repo in "${MANAGED_REPOS[@]}"; do
     run_package_repo "$repo" || failed=1
   done
 
@@ -654,7 +795,7 @@ move_packaged_artifacts_all() {
   local failed=0
   local repo
 
-  for repo in "${REPO_NAMES[@]}"; do
+  for repo in "${MANAGED_REPOS[@]}"; do
     move_packaged_artifacts_for_repo "$repo" || failed=1
   done
 
@@ -839,17 +980,13 @@ health_check_after_start() {
   local failed=0
   local repo state running_count total_count
 
-  for repo in "${REQUIRED_START_ORDER[@]}"; do
+  for repo in "${STARTUP_SERVICES[@]}"; do
     state="$(repo_running_state "$repo")"
     running_count="${state%% *}"
     total_count="${state##* }"
 
     if [[ "$running_count" == "$total_count" && "$total_count" != "0" ]]; then
-      if [[ "$repo" == "term-webclient" ]]; then
-        summary_add_ok "health check passed: term-webclient backend/frontend pids alive"
-      else
-        summary_add_ok "health check passed: $repo app pid alive"
-      fi
+      summary_add_ok "health check passed: $repo app pid alive"
     else
       summary_add_fail "health check failed: $repo process not fully running ($running_count/$total_count)"
       failed=1
@@ -867,6 +1004,7 @@ run_first_install() {
   setup_log "workspace base dir: $BASE_DIR"
   setup_log "workspace source dir: $(workspace_source_dir)"
   setup_log "workspace release dir: $(workspace_release_dir)"
+  setup_log "workspace config dir: $(workspace_config_dir)"
 
   if setup_require_cmd git; then
     summary_add_ok "git available"
@@ -876,8 +1014,9 @@ run_first_install() {
   fi
 
   setup_show_first_install_password_notice
+  ensure_startup_config_exists || failed=1
 
-  for repo in "${REPO_NAMES[@]}"; do
+  for repo in "${MANAGED_REPOS[@]}"; do
     refresh_repo_by_clone "$repo" "$(repo_url "$repo")" || failed=1
   done
 
@@ -914,9 +1053,10 @@ run_update() {
     return 1
   fi
 
+  ensure_startup_config_exists || failed=1
   backup_update_configs || failed=1
 
-  for repo in "${REPO_NAMES[@]}"; do
+  for repo in "${MANAGED_REPOS[@]}"; do
     refresh_repo_by_clone "$repo" "$(repo_url "$repo")" || failed=1
   done
 
@@ -944,7 +1084,9 @@ run_start() {
     return 1
   fi
 
-  for repo in "${REQUIRED_START_ORDER[@]}"; do
+  load_startup_services || return 1
+
+  for repo in "${STARTUP_SERVICES[@]}"; do
     start_repo "$repo" || failed=1
   done
   health_check_after_start || failed=1
@@ -959,9 +1101,12 @@ run_start() {
 
 run_stop() {
   local failed=0
-  local repo
+  local idx repo
 
-  for repo in "${REQUIRED_STOP_ORDER[@]}"; do
+  load_startup_services || return 1
+
+  for ((idx = ${#STARTUP_SERVICES[@]} - 1; idx >= 0; idx--)); do
+    repo="${STARTUP_SERVICES[$idx]}"
     stop_repo "$repo" || failed=1
   done
 
@@ -1000,6 +1145,10 @@ dispatch_action() {
     run_stop || status=1
     print_summary "stop"
     ;;
+  configure-startup)
+    run_configure_startup || status=1
+    print_summary "configure-startup"
+    ;;
   reset-password-hash)
     run_reset_password_hash || status=1
     print_summary "reset-password-hash"
@@ -1026,25 +1175,27 @@ menu_loop() {
 3) 更新
 4) 启动
 5) 停止
-6) 重置密码哈希
+6) 配置启动列表
+7) 重置密码哈希
 0) 退出
 ===========================================
 MENU
 
-    read -r -p "请输入数字 [0-6]: " choice
+    read -r -p "请输入数字 [0-7]: " choice
     case "$choice" in
     1) dispatch_action "precheck" ;;
     2) dispatch_action "first-install" ;;
     3) dispatch_action "update" ;;
     4) dispatch_action "start" ;;
     5) dispatch_action "stop" ;;
-    6) dispatch_action "reset-password-hash" ;;
+    6) dispatch_action "configure-startup" ;;
+    7) dispatch_action "reset-password-hash" ;;
     0)
       setup_log "exit setup menu"
       return 0
       ;;
     *)
-      setup_warn "invalid choice: $choice (allowed: 0-6)"
+      setup_warn "invalid choice: $choice (allowed: 0-7)"
       ;;
     esac
   done
