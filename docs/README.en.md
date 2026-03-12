@@ -9,8 +9,8 @@ ZenMind is a multi-repository hub for AI agent workflow services.
 
 ## Deployment Baseline (2026-03)
 
-- macOS is the only supported deployment path in this phase.
-- Windows setup remains intentionally fail-fast as a placeholder.
+- macOS and Linux are the supported deployment paths in this phase.
+- Direct installation on the Windows host is no longer supported; use WSL instead.
 - `docs/media/zenmind-overview.svg` is not updated in this round.
 
 ## Projects (5)
@@ -39,6 +39,44 @@ Non-interactive actions:
 ./setup-mac.sh --action stop
 ./setup-mac.sh --action configure-startup
 ./setup-mac.sh --action reset-password-hash
+```
+
+## Linux Entry
+
+```bash
+./setup-linux.sh
+```
+
+Non-interactive actions:
+
+```bash
+./setup-linux.sh --action precheck
+./setup-linux.sh --action first-install
+./setup-linux.sh --action update
+./setup-linux.sh --action start
+./setup-linux.sh --action stop
+./setup-linux.sh --action configure-startup
+./setup-linux.sh --action reset-password-hash
+```
+
+## Windows via WSL
+
+Open your WSL distro shell first, then run:
+
+```bash
+./setup-win-wsl.sh
+```
+
+Non-interactive actions:
+
+```bash
+./setup-win-wsl.sh --action precheck
+./setup-win-wsl.sh --action first-install
+./setup-win-wsl.sh --action update
+./setup-win-wsl.sh --action start
+./setup-win-wsl.sh --action stop
+./setup-win-wsl.sh --action configure-startup
+./setup-win-wsl.sh --action reset-password-hash
 ```
 
 ## Startup List Configuration
@@ -80,7 +118,8 @@ This action prompts whether each service should be enabled and rewrites `config/
   - `mcp-server-mock`
   - `mcp-server-bash`
   - `mcp-server-email`
-- execute each repo `release-scripts/mac/package.sh`
+- `setup-mac.sh` executes each repo `release-scripts/mac/package.sh`
+- `setup-linux.sh` and `setup-win-wsl.sh` execute each repo `release-scripts/linux/package.sh`
 - move packaged outputs into `release/<repo>`
 - copy the currently defined required config examples:
   - `source/zenmind-app-server/.env.example -> release/zenmind-app-server/.env`
@@ -93,7 +132,7 @@ Password hash injection remains for:
   - `AUTH_ADMIN_PASSWORD_BCRYPT`
   - `AUTH_APP_MASTER_PASSWORD_BCRYPT`
 
-## macOS Requirements
+## macOS / Linux Requirements
 
 `precheck` install mode requires:
 
@@ -108,16 +147,17 @@ Notes:
 
 - Docker/Compose is still not a mandatory dependency for this setup repo.
 - Runtime mode follows whatever runtime checks are defined in the environment check script.
+- Linux / WSL fix hints are written against an Ubuntu/Debian baseline.
 
 ## Windows Placeholder
 
-The following command is still expected to fail-fast:
+The following PowerShell command is still expected to fail-fast:
 
 ```powershell
 .\setup-windows.ps1 -Action precheck
 ```
 
-Use mac setup commands instead.
+Enter WSL first, then use `./setup-win-wsl.sh --action precheck`.
 
 ## License
 

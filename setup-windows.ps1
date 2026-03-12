@@ -130,9 +130,9 @@ if ($Help -or $Action -in @('help', '--help', '-h', '/?')) {
   exit 0
 }
 
-Write-Host '[setup-win] ERROR: Windows setup is temporarily disabled for the new deployment topology.'
-Write-Host '[setup-win] 当前新部署拓扑仅支持 mac，Windows 暂未实现。'
-Write-Host '[setup-win] Please use mac setup: ./setup-mac.sh --action precheck'
+Write-Host '[setup-win] ERROR: direct Windows-host installation is disabled for the current deployment topology.'
+Write-Host '[setup-win] 当前部署拓扑不再支持直接安装到 Windows 主系统，请进入 WSL 后执行安装。'
+Write-Host '[setup-win] Enter your WSL distro, then run: ./setup-win-wsl.sh --action precheck'
 exit 1
 
 if (-not [string]::IsNullOrWhiteSpace($Action)) {

@@ -9,8 +9,8 @@ ZenMind 是一个面向 AI Agent 工作流的多仓库 Hub。
 
 ## 2026-03 部署基线
 
-- 当前仅保证 macOS 可用。
-- Windows setup 仍为 fail-fast 占位。
+- 当前支持 macOS 与 Linux 部署链路。
+- Windows 主系统不再直接安装；请进入 WSL 后使用 WSL 入口脚本。
 - 系统总览图 `docs/media/zenmind-overview.svg` 本轮不变更。
 
 ## 子项目（5 项）
@@ -39,6 +39,44 @@ ZenMind 是一个面向 AI Agent 工作流的多仓库 Hub。
 ./setup-mac.sh --action stop
 ./setup-mac.sh --action configure-startup
 ./setup-mac.sh --action reset-password-hash
+```
+
+## Linux 部署入口
+
+```bash
+./setup-linux.sh
+```
+
+非交互动作：
+
+```bash
+./setup-linux.sh --action precheck
+./setup-linux.sh --action first-install
+./setup-linux.sh --action update
+./setup-linux.sh --action start
+./setup-linux.sh --action stop
+./setup-linux.sh --action configure-startup
+./setup-linux.sh --action reset-password-hash
+```
+
+## Windows WSL 部署入口
+
+请先进入 WSL 发行版 shell，再执行：
+
+```bash
+./setup-win-wsl.sh
+```
+
+非交互动作：
+
+```bash
+./setup-win-wsl.sh --action precheck
+./setup-win-wsl.sh --action first-install
+./setup-win-wsl.sh --action update
+./setup-win-wsl.sh --action start
+./setup-win-wsl.sh --action stop
+./setup-win-wsl.sh --action configure-startup
+./setup-win-wsl.sh --action reset-password-hash
 ```
 
 ## 启动列表配置
@@ -80,7 +118,8 @@ ZenMind 是一个面向 AI Agent 工作流的多仓库 Hub。
   - `mcp-server-mock`
   - `mcp-server-bash`
   - `mcp-server-email`
-- 调用各仓库 `release-scripts/mac/package.sh`
+- `setup-mac.sh` 调用各仓库 `release-scripts/mac/package.sh`
+- `setup-linux.sh` / `setup-win-wsl.sh` 调用各仓库 `release-scripts/linux/package.sh`
 - 将产物移动到 `release/<repo>`
 - 同步当前已定义的配置模板：
   - `source/zenmind-app-server/.env.example -> release/zenmind-app-server/.env`
@@ -93,7 +132,7 @@ ZenMind 是一个面向 AI Agent 工作流的多仓库 Hub。
   - `AUTH_ADMIN_PASSWORD_BCRYPT`
   - `AUTH_APP_MASTER_PASSWORD_BCRYPT`
 
-## 环境依赖（mac）
+## 环境依赖（mac / linux）
 
 `precheck` install 模式必检：
 
@@ -108,8 +147,9 @@ ZenMind 是一个面向 AI Agent 工作流的多仓库 Hub。
 
 - Docker/Compose 不是本仓库 setup 的强依赖。
 - `runtime` 模式按环境检查脚本当前定义执行。
+- Linux / WSL 的修复提示以 Ubuntu/Debian 为基线。
 
-## Windows 占位说明
+## Windows 状态
 
 运行以下命令会直接 fail-fast：
 
@@ -117,7 +157,7 @@ ZenMind 是一个面向 AI Agent 工作流的多仓库 Hub。
 .\setup-windows.ps1 -Action precheck
 ```
 
-请改用 mac 入口执行部署。
+请先进入 WSL，再执行 `./setup-win-wsl.sh --action precheck`。
 
 ## License
 
