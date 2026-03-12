@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+CLOUDFLARED_DIR="$HOME/.cloudflared"
+CONFIG_FILE="$CLOUDFLARED_DIR/config.yml"
+CERT_FILE="$CLOUDFLARED_DIR/cert.pem"
+
+die() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "未检测到命令: $1"
+}
+
 prompt() {
   local varname="$1"
   local text="$2"
@@ -15,17 +28,36 @@ prompt() {
   printf -v "$varname" "%s" "$input"
 }
 
-echo "== Cloudflare Tunnel config generator (UUID-only) =="
+echo "== Cloudflare Tunnel setup =="
+echo "这会自动执行：远程 route dns、本地生成 config.yml"
+echo
+
+need_cmd cloudflared
+need_cmd mkdir
 
 prompt TUNNEL_UUID "请输入 Tunnel UUID"
 prompt HOSTNAME "请输入域名（hostname），例如 app.zenmind.cc"
 prompt LOCAL_PORT "请输入本地转发端口" "11945"
 
-CLOUDFLARED_DIR="$HOME/.cloudflared"
-CONFIG_FILE="$CLOUDFLARED_DIR/config.yml"
-CRED_FILE="$CLOUDFLARED_DIR/${TUNNEL_UUID}.json"
+[[ -n "$TUNNEL_UUID" ]] || die "Tunnel UUID 不能为空"
+[[ -n "$HOSTNAME" ]] || die "hostname 不能为空"
 
 mkdir -p "$CLOUDFLARED_DIR"
+
+if [[ ! -f "$CERT_FILE" ]]; then
+  echo
+  echo "==> 未检测到 Cloudflare 登录凭据，开始登录..."
+  echo "==> 浏览器会打开，请选择对应 zone 完成授权。"
+  cloudflared tunnel login
+  [[ -f "$CERT_FILE" ]] || die "登录后仍未生成证书: $CERT_FILE"
+fi
+
+CRED_FILE="$CLOUDFLARED_DIR/${TUNNEL_UUID}.json"
+[[ -f "$CRED_FILE" ]] || die "未找到 tunnel 凭据文件: $CRED_FILE。请先创建 tunnel，或运行 ./scripts/mac/create-cf-tunnel-config-sysadmin.sh"
+
+echo
+echo "==> 绑定 DNS: $HOSTNAME -> $TUNNEL_UUID"
+cloudflared tunnel route dns --overwrite-dns "$TUNNEL_UUID" "$HOSTNAME"
 
 cat > "$CONFIG_FILE" <<EOF
 tunnel: ${TUNNEL_UUID}
@@ -38,21 +70,13 @@ ingress:
 EOF
 
 echo
-echo "已写入配置: $CONFIG_FILE"
-echo "凭据文件应存在: $CRED_FILE"
+echo "已完成 Cloudflare Tunnel 配置。"
+echo "Tunnel UUID: $TUNNEL_UUID"
+echo "DNS hostname: $HOSTNAME"
+echo "本地端口: $LOCAL_PORT"
+echo "配置文件: $CONFIG_FILE"
+echo "凭据文件: $CRED_FILE"
 echo
-
-if ! command -v cloudflared >/dev/null 2>&1; then
-  echo "未检测到 cloudflared。可用 Homebrew 安装："
-  echo "  brew install cloudflare/cloudflare/cloudflared"
-  exit 1
-fi
-
-if [[ ! -f "$CRED_FILE" ]]; then
-  echo "警告：未找到 $CRED_FILE"
-  echo "需要先在本机通过 Cloudflare 登录/创建 tunnel 生成该凭据文件。"
-  echo
-fi
 
 read -r -p "是否现在启动？(y/N): " START_NOW
 START_NOW="${START_NOW:-N}"
