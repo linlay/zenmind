@@ -45,25 +45,23 @@ const DEFAULT_PROFILE = {
   },
   admin: {
     enabled: true,
-    publicEnabled: true,
+    webEnabled: true,
     frontendPort: 11950,
-    adminPassword: { plain: "", bcrypt: "" },
-    appMasterPassword: { plain: "", bcrypt: "" }
+    webPasswordBcrypt: "",
+    appMasterPasswordBcrypt: ""
   },
   pan: {
     enabled: true,
     webEnabled: true,
-    appEnabled: true,
     frontendPort: 11946,
-    webPassword: { plain: "", bcrypt: "" },
+    webPasswordBcrypt: "",
     webSessionSecret: ""
   },
   term: {
     enabled: true,
     webEnabled: true,
-    appEnabled: true,
     frontendPort: 11947,
-    webPassword: { plain: "", bcrypt: "" }
+    webPasswordBcrypt: ""
   },
   miniApp: {
     enabled: true,
@@ -255,17 +253,26 @@ function deriveOrigin(domain) {
   return `https://${domain}`;
 }
 
-function normalizeSecret(secret) {
-  if (secret && typeof secret === "object") {
-    return {
-      plain: String(secret.plain || ""),
-      bcrypt: String(secret.bcrypt || "")
-    };
-  }
+function getBcryptValue(secret) {
   if (typeof secret === "string") {
-    return { plain: secret, bcrypt: "" };
+    return normalizeBcrypt(secret);
   }
-  return { plain: "", bcrypt: "" };
+  if (secret && typeof secret === "object") {
+    return normalizeBcrypt(secret.bcrypt || "");
+  }
+  return "";
+}
+
+function captureLegacySecret(secret) {
+  if (!secret || typeof secret !== "object") {
+    return null;
+  }
+  const plain = String(secret.plain || "");
+  const bcrypt = normalizeBcrypt(secret.bcrypt || "");
+  if (!plain.trim() && !bcrypt) {
+    return null;
+  }
+  return { plain, bcrypt };
 }
 
 function normalizePathValue(value) {
@@ -288,14 +295,59 @@ function ensurePort(value, label) {
 
 function normalizeProfile(rawProfile) {
   if (rawProfile?.profileVersion === 2) {
-    const merged = deepMerge(DEFAULT_PROFILE, rawProfile);
-    merged.profileVersion = 2;
-    merged.website.domain = normalizeDomain(merged.website.domain);
-    merged.admin.adminPassword = normalizeSecret(merged.admin.adminPassword);
-    merged.admin.appMasterPassword = normalizeSecret(merged.admin.appMasterPassword);
-    merged.pan.webPassword = normalizeSecret(merged.pan.webPassword);
-    merged.term.webPassword = normalizeSecret(merged.term.webPassword);
-    return merged;
+    return {
+      profileVersion: 2,
+      website: {
+        domain: normalizeDomain(rawProfile?.website?.domain || DEFAULT_PROFILE.website.domain)
+      },
+      cloudflared: {
+        tunnelUuid: String(rawProfile?.cloudflared?.tunnelUuid || DEFAULT_PROFILE.cloudflared.tunnelUuid)
+      },
+      gateway: {
+        listenPort: rawProfile?.gateway?.listenPort ?? DEFAULT_PROFILE.gateway.listenPort
+      },
+      agentPlatformRunner: {
+        baseUrl: String(rawProfile?.agentPlatformRunner?.baseUrl || DEFAULT_PROFILE.agentPlatformRunner.baseUrl)
+      },
+      admin: {
+        enabled: Boolean(rawProfile?.admin?.enabled ?? DEFAULT_PROFILE.admin.enabled),
+        webEnabled: Boolean(rawProfile?.admin?.webEnabled ?? rawProfile?.admin?.publicEnabled ?? DEFAULT_PROFILE.admin.webEnabled),
+        frontendPort: rawProfile?.admin?.frontendPort ?? DEFAULT_PROFILE.admin.frontendPort,
+        webPasswordBcrypt: getBcryptValue(rawProfile?.admin?.webPasswordBcrypt || rawProfile?.admin?.adminPassword),
+        appMasterPasswordBcrypt: getBcryptValue(rawProfile?.admin?.appMasterPasswordBcrypt || rawProfile?.admin?.appMasterPassword)
+      },
+      pan: {
+        enabled: Boolean(rawProfile?.pan?.enabled ?? DEFAULT_PROFILE.pan.enabled),
+        webEnabled: Boolean(rawProfile?.pan?.webEnabled ?? DEFAULT_PROFILE.pan.webEnabled),
+        frontendPort: rawProfile?.pan?.frontendPort ?? DEFAULT_PROFILE.pan.frontendPort,
+        webPasswordBcrypt: getBcryptValue(rawProfile?.pan?.webPasswordBcrypt || rawProfile?.pan?.webPassword),
+        webSessionSecret: String(rawProfile?.pan?.webSessionSecret || "")
+      },
+      term: {
+        enabled: Boolean(rawProfile?.term?.enabled ?? DEFAULT_PROFILE.term.enabled),
+        webEnabled: Boolean(rawProfile?.term?.webEnabled ?? DEFAULT_PROFILE.term.webEnabled),
+        frontendPort: rawProfile?.term?.frontendPort ?? DEFAULT_PROFILE.term.frontendPort,
+        webPasswordBcrypt: getBcryptValue(rawProfile?.term?.webPasswordBcrypt || rawProfile?.term?.webPassword)
+      },
+      miniApp: {
+        enabled: Boolean(rawProfile?.miniApp?.enabled ?? DEFAULT_PROFILE.miniApp.enabled),
+        defaultAppMode: String(rawProfile?.miniApp?.defaultAppMode || DEFAULT_PROFILE.miniApp.defaultAppMode),
+        publicBase: String(rawProfile?.miniApp?.publicBase || DEFAULT_PROFILE.miniApp.publicBase),
+        port: rawProfile?.miniApp?.port ?? DEFAULT_PROFILE.miniApp.port
+      },
+      sandboxes: {
+        enabled: Boolean(rawProfile?.sandboxes?.enabled ?? DEFAULT_PROFILE.sandboxes.enabled)
+      },
+      mcp: {
+        enabled: Boolean(rawProfile?.mcp?.enabled ?? DEFAULT_PROFILE.mcp.enabled)
+      },
+      __legacySecrets: {
+        adminWebPassword: captureLegacySecret(rawProfile?.__legacySecrets?.adminWebPassword) || captureLegacySecret(rawProfile?.admin?.adminPassword),
+        adminAppMasterPassword: captureLegacySecret(rawProfile?.__legacySecrets?.adminAppMasterPassword) || captureLegacySecret(rawProfile?.admin?.appMasterPassword),
+        panWebPassword: captureLegacySecret(rawProfile?.__legacySecrets?.panWebPassword) || captureLegacySecret(rawProfile?.pan?.webPassword),
+        termWebPassword: captureLegacySecret(rawProfile?.__legacySecrets?.termWebPassword) || captureLegacySecret(rawProfile?.term?.webPassword)
+      }
+    };
   }
 
   const websiteDomain = normalizeDomain(
@@ -324,25 +376,23 @@ function normalizeProfile(rawProfile) {
     },
     admin: {
       enabled: Boolean(rawProfile?.services?.zenmindAppServer?.enabled ?? DEFAULT_PROFILE.admin.enabled),
-      publicEnabled: Boolean(rawProfile?.access?.adminPublicEnabled ?? DEFAULT_PROFILE.admin.publicEnabled),
+      webEnabled: Boolean(rawProfile?.access?.adminPublicEnabled ?? DEFAULT_PROFILE.admin.webEnabled),
       frontendPort: rawProfile?.services?.zenmindAppServer?.frontendPort ?? DEFAULT_PROFILE.admin.frontendPort,
-      adminPassword: normalizeSecret(rawProfile?.services?.zenmindAppServer?.adminPassword),
-      appMasterPassword: normalizeSecret(rawProfile?.services?.zenmindAppServer?.appMasterPassword)
+      webPasswordBcrypt: getBcryptValue(rawProfile?.services?.zenmindAppServer?.adminPassword),
+      appMasterPasswordBcrypt: getBcryptValue(rawProfile?.services?.zenmindAppServer?.appMasterPassword)
     },
     pan: {
       enabled: Boolean(rawProfile?.services?.panWebclient?.enabled ?? DEFAULT_PROFILE.pan.enabled),
       webEnabled: Boolean(rawProfile?.access?.panWebEnabled ?? DEFAULT_PROFILE.pan.webEnabled),
-      appEnabled: Boolean(rawProfile?.access?.panAppEnabled ?? DEFAULT_PROFILE.pan.appEnabled),
       frontendPort: rawProfile?.services?.panWebclient?.frontendPort ?? DEFAULT_PROFILE.pan.frontendPort,
-      webPassword: normalizeSecret(rawProfile?.services?.panWebclient?.webPassword),
+      webPasswordBcrypt: getBcryptValue(rawProfile?.services?.panWebclient?.webPassword),
       webSessionSecret: String(rawProfile?.services?.panWebclient?.webSessionSecret || "")
     },
     term: {
       enabled: Boolean(rawProfile?.services?.termWebclient?.enabled ?? DEFAULT_PROFILE.term.enabled),
       webEnabled: Boolean(rawProfile?.access?.termWebEnabled ?? DEFAULT_PROFILE.term.webEnabled),
-      appEnabled: Boolean(rawProfile?.access?.termAppEnabled ?? DEFAULT_PROFILE.term.appEnabled),
       frontendPort: rawProfile?.services?.termWebclient?.frontendPort ?? DEFAULT_PROFILE.term.frontendPort,
-      webPassword: normalizeSecret(rawProfile?.services?.termWebclient?.webPassword)
+      webPasswordBcrypt: getBcryptValue(rawProfile?.services?.termWebclient?.webPassword)
     },
     miniApp: {
       enabled: Boolean(rawProfile?.services?.miniAppServer?.enabled ?? DEFAULT_PROFILE.miniApp.enabled),
@@ -361,6 +411,12 @@ function normalizeProfile(rawProfile) {
         rawProfile?.services?.mcpServerEmail === undefined &&
         DEFAULT_PROFILE.mcp.enabled
       )
+    },
+    __legacySecrets: {
+      adminWebPassword: captureLegacySecret(rawProfile?.services?.zenmindAppServer?.adminPassword),
+      adminAppMasterPassword: captureLegacySecret(rawProfile?.services?.zenmindAppServer?.appMasterPassword),
+      panWebPassword: captureLegacySecret(rawProfile?.services?.panWebclient?.webPassword),
+      termWebPassword: captureLegacySecret(rawProfile?.services?.termWebclient?.webPassword)
     }
   };
 }
@@ -383,25 +439,23 @@ function serializeProfile(profile) {
     },
     admin: {
       enabled: normalized.admin.enabled,
-      publicEnabled: normalized.admin.publicEnabled,
+      webEnabled: normalized.admin.webEnabled,
       frontendPort: normalized.admin.frontendPort,
-      adminPassword: normalizeSecret(normalized.admin.adminPassword),
-      appMasterPassword: normalizeSecret(normalized.admin.appMasterPassword)
+      webPasswordBcrypt: normalized.admin.webPasswordBcrypt,
+      appMasterPasswordBcrypt: normalized.admin.appMasterPasswordBcrypt
     },
     pan: {
       enabled: normalized.pan.enabled,
       webEnabled: normalized.pan.webEnabled,
-      appEnabled: normalized.pan.appEnabled,
       frontendPort: normalized.pan.frontendPort,
-      webPassword: normalizeSecret(normalized.pan.webPassword),
+      webPasswordBcrypt: normalized.pan.webPasswordBcrypt,
       webSessionSecret: normalized.pan.webSessionSecret
     },
     term: {
       enabled: normalized.term.enabled,
       webEnabled: normalized.term.webEnabled,
-      appEnabled: normalized.term.appEnabled,
       frontendPort: normalized.term.frontendPort,
-      webPassword: normalizeSecret(normalized.term.webPassword)
+      webPasswordBcrypt: normalized.term.webPasswordBcrypt
     },
     miniApp: {
       enabled: normalized.miniApp.enabled,
@@ -447,6 +501,7 @@ function expandProfile(profile, reposRoot) {
   const detailed = deepMerge(INTERNAL_DEFAULTS, {});
   const websiteOrigin = deriveOrigin(normalized.website.domain);
   const managedPublicKey = resolveManagedPublicKeyPem(reposRoot);
+  const legacySecrets = normalized.__legacySecrets || {};
 
   detailed.website.domain = normalized.website.domain;
   detailed.website.publicOrigin = websiteOrigin;
@@ -455,30 +510,30 @@ function expandProfile(profile, reposRoot) {
   detailed.cloudflared.tunnelUuid = normalized.cloudflared.tunnelUuid;
   detailed.agentPlatformRunner.baseUrl = normalized.agentPlatformRunner.baseUrl;
 
-  detailed.access.adminPublicEnabled = normalized.admin.enabled ? normalized.admin.publicEnabled : false;
+  detailed.access.adminPublicEnabled = normalized.admin.enabled ? normalized.admin.webEnabled : false;
   detailed.access.panWebEnabled = normalized.pan.enabled ? normalized.pan.webEnabled : false;
-  detailed.access.panAppEnabled = normalized.pan.enabled ? normalized.pan.appEnabled : false;
+  detailed.access.panAppEnabled = normalized.pan.enabled;
   detailed.access.termWebEnabled = normalized.term.enabled ? normalized.term.webEnabled : false;
-  detailed.access.termAppEnabled = normalized.term.enabled ? normalized.term.appEnabled : false;
+  detailed.access.termAppEnabled = normalized.term.enabled;
 
   detailed.services.zenmindAppServer.enabled = normalized.admin.enabled;
   detailed.services.zenmindAppServer.frontendPort = normalized.admin.frontendPort;
   detailed.services.zenmindAppServer.issuer = websiteOrigin;
-  detailed.services.zenmindAppServer.adminPassword = normalizeSecret(normalized.admin.adminPassword);
-  detailed.services.zenmindAppServer.appMasterPassword = normalizeSecret(normalized.admin.appMasterPassword);
+  detailed.services.zenmindAppServer.adminPassword = normalized.admin.webPasswordBcrypt || legacySecrets.adminWebPassword || "";
+  detailed.services.zenmindAppServer.appMasterPassword = normalized.admin.appMasterPasswordBcrypt || legacySecrets.adminAppMasterPassword || "";
 
   detailed.services.voiceServer.runnerBaseUrl = normalized.agentPlatformRunner.baseUrl;
 
   detailed.services.panWebclient.enabled = normalized.pan.enabled;
   detailed.services.panWebclient.frontendPort = normalized.pan.frontendPort;
-  detailed.services.panWebclient.webPassword = normalizeSecret(normalized.pan.webPassword);
+  detailed.services.panWebclient.webPassword = normalized.pan.webPasswordBcrypt || legacySecrets.panWebPassword || "";
   detailed.services.panWebclient.webSessionSecret = normalized.pan.webSessionSecret;
   detailed.services.panWebclient.jwtPublicKeyPem = managedPublicKey;
   detailed.services.panWebclient.mounts = [];
 
   detailed.services.termWebclient.enabled = normalized.term.enabled;
   detailed.services.termWebclient.frontendPort = normalized.term.frontendPort;
-  detailed.services.termWebclient.webPassword = normalizeSecret(normalized.term.webPassword);
+  detailed.services.termWebclient.webPassword = normalized.term.webPasswordBcrypt || legacySecrets.termWebPassword || "";
   detailed.services.termWebclient.appAuthIssuer = websiteOrigin;
   detailed.services.termWebclient.jwtPublicKeyPem = managedPublicKey;
   detailed.services.termWebclient.mounts = [];
@@ -547,11 +602,11 @@ function normalizeBcrypt(hash) {
 }
 
 function resolveSecretHash(secret, bcryptScriptPath) {
-  const direct = normalizeBcrypt(secret?.bcrypt || "");
+  const direct = getBcryptValue(secret);
   if (direct) {
     return direct;
   }
-  const plain = String(secret?.plain || "").trim();
+  const plain = secret && typeof secret === "object" ? String(secret.plain || "").trim() : "";
   if (!plain) {
     return "";
   }

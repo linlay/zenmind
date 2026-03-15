@@ -14,25 +14,23 @@ const DEFAULT_PROFILE = {
   },
   admin: {
     enabled: true,
-    publicEnabled: true,
+    webEnabled: true,
     frontendPort: 11950,
-    adminPassword: { plain: "", bcrypt: "" },
-    appMasterPassword: { plain: "", bcrypt: "" }
+    webPasswordBcrypt: "",
+    appMasterPasswordBcrypt: ""
   },
   pan: {
     enabled: true,
     webEnabled: true,
-    appEnabled: true,
     frontendPort: 11946,
-    webPassword: { plain: "", bcrypt: "" },
+    webPasswordBcrypt: "",
     webSessionSecret: ""
   },
   term: {
     enabled: true,
     webEnabled: true,
-    appEnabled: true,
     frontendPort: 11947,
-    webPassword: { plain: "", bcrypt: "" }
+    webPasswordBcrypt: ""
   },
   miniApp: {
     enabled: true,
@@ -57,6 +55,8 @@ const PROJECTS = {
   mcp: { path: "mcp.enabled", label: "MCP 服务" }
 };
 
+const BCRYPT_SALT_ROUNDS = 10;
+
 const form = document.querySelector("#config-form");
 const fileInput = document.querySelector("#file-input");
 const fileStatus = document.querySelector("#file-status");
@@ -70,12 +70,16 @@ const copyDialogDescription = document.querySelector("#copy-dialog-description")
 const copySourceList = document.querySelector("#copy-source-list");
 const copyCloseButton = document.querySelector("[data-copy-close]");
 const namedFields = Array.from(form.querySelectorAll("[name]"));
+const passwordFields = Array.from(form.querySelectorAll("[data-bcrypt-target]"));
+const sensitiveFields = Array.from(form.querySelectorAll("[data-sensitive='true']"));
 const navButtons = Array.from(document.querySelectorAll("[data-select-view]"));
 const navToggles = Array.from(document.querySelectorAll("[data-project-toggle]"));
 const viewPanels = Array.from(document.querySelectorAll(".view-panel"));
 const advancedButtons = Array.from(document.querySelectorAll("[data-advanced-toggle]"));
+const hashStatusNodes = Array.from(document.querySelectorAll("[data-hash-status-for]"));
 
 let state = normalizeProfile(DEFAULT_PROFILE);
+let plainPasswordState = {};
 let fileHandle = null;
 let dirty = false;
 let selectedView = "global";
@@ -124,28 +128,84 @@ function stripProtocol(value) {
     .replace(/^\.+|\.+$/g, "");
 }
 
-function normalizeSecret(secret) {
-  if (secret && typeof secret === "object") {
-    return {
-      plain: String(secret.plain || ""),
-      bcrypt: String(secret.bcrypt || "")
-    };
+function normalizeBcrypt(hash) {
+  const trimmed = String(hash || "").trim().replace(/^['"]|['"]$/g, "");
+  if (trimmed.startsWith("$2b$")) {
+    return `$2y$${trimmed.slice(4)}`;
   }
+  return trimmed;
+}
+
+function getBcryptValue(secret) {
   if (typeof secret === "string") {
-    return { plain: secret, bcrypt: "" };
+    return normalizeBcrypt(secret);
   }
-  return { plain: "", bcrypt: "" };
+  if (secret && typeof secret === "object") {
+    return normalizeBcrypt(secret.bcrypt || "");
+  }
+  return "";
+}
+
+function getImportedBcryptValue(secret) {
+  const direct = getBcryptValue(secret);
+  if (direct) {
+    return direct;
+  }
+  if (secret && typeof secret === "object") {
+    return computeBcrypt(String(secret.plain || ""));
+  }
+  return "";
 }
 
 function normalizeProfile(rawProfile) {
   if (rawProfile?.profileVersion === 2) {
-    const merged = deepMerge(DEFAULT_PROFILE, rawProfile);
-    merged.website.domain = stripProtocol(merged.website.domain).toLowerCase();
-    merged.admin.adminPassword = normalizeSecret(merged.admin.adminPassword);
-    merged.admin.appMasterPassword = normalizeSecret(merged.admin.appMasterPassword);
-    merged.pan.webPassword = normalizeSecret(merged.pan.webPassword);
-    merged.term.webPassword = normalizeSecret(merged.term.webPassword);
-    return merged;
+    return {
+      profileVersion: 2,
+      website: {
+        domain: stripProtocol(rawProfile?.website?.domain || DEFAULT_PROFILE.website.domain).toLowerCase()
+      },
+      cloudflared: {
+        tunnelUuid: String(rawProfile?.cloudflared?.tunnelUuid || DEFAULT_PROFILE.cloudflared.tunnelUuid)
+      },
+      gateway: {
+        listenPort: rawProfile?.gateway?.listenPort ?? DEFAULT_PROFILE.gateway.listenPort
+      },
+      agentPlatformRunner: {
+        baseUrl: String(rawProfile?.agentPlatformRunner?.baseUrl || DEFAULT_PROFILE.agentPlatformRunner.baseUrl)
+      },
+      admin: {
+        enabled: Boolean(rawProfile?.admin?.enabled ?? DEFAULT_PROFILE.admin.enabled),
+        webEnabled: Boolean(rawProfile?.admin?.webEnabled ?? rawProfile?.admin?.publicEnabled ?? DEFAULT_PROFILE.admin.webEnabled),
+        frontendPort: rawProfile?.admin?.frontendPort ?? DEFAULT_PROFILE.admin.frontendPort,
+        webPasswordBcrypt: getImportedBcryptValue(rawProfile?.admin?.webPasswordBcrypt || rawProfile?.admin?.adminPassword),
+        appMasterPasswordBcrypt: getImportedBcryptValue(rawProfile?.admin?.appMasterPasswordBcrypt || rawProfile?.admin?.appMasterPassword)
+      },
+      pan: {
+        enabled: Boolean(rawProfile?.pan?.enabled ?? DEFAULT_PROFILE.pan.enabled),
+        webEnabled: Boolean(rawProfile?.pan?.webEnabled ?? DEFAULT_PROFILE.pan.webEnabled),
+        frontendPort: rawProfile?.pan?.frontendPort ?? DEFAULT_PROFILE.pan.frontendPort,
+        webPasswordBcrypt: getImportedBcryptValue(rawProfile?.pan?.webPasswordBcrypt || rawProfile?.pan?.webPassword),
+        webSessionSecret: String(rawProfile?.pan?.webSessionSecret || "")
+      },
+      term: {
+        enabled: Boolean(rawProfile?.term?.enabled ?? DEFAULT_PROFILE.term.enabled),
+        webEnabled: Boolean(rawProfile?.term?.webEnabled ?? DEFAULT_PROFILE.term.webEnabled),
+        frontendPort: rawProfile?.term?.frontendPort ?? DEFAULT_PROFILE.term.frontendPort,
+        webPasswordBcrypt: getImportedBcryptValue(rawProfile?.term?.webPasswordBcrypt || rawProfile?.term?.webPassword)
+      },
+      miniApp: {
+        enabled: Boolean(rawProfile?.miniApp?.enabled ?? DEFAULT_PROFILE.miniApp.enabled),
+        defaultAppMode: String(rawProfile?.miniApp?.defaultAppMode || DEFAULT_PROFILE.miniApp.defaultAppMode),
+        publicBase: String(rawProfile?.miniApp?.publicBase || DEFAULT_PROFILE.miniApp.publicBase),
+        port: rawProfile?.miniApp?.port ?? DEFAULT_PROFILE.miniApp.port
+      },
+      sandboxes: {
+        enabled: Boolean(rawProfile?.sandboxes?.enabled ?? DEFAULT_PROFILE.sandboxes.enabled)
+      },
+      mcp: {
+        enabled: Boolean(rawProfile?.mcp?.enabled ?? DEFAULT_PROFILE.mcp.enabled)
+      }
+    };
   }
 
   const legacyMcpEnabled = [
@@ -171,25 +231,23 @@ function normalizeProfile(rawProfile) {
     },
     admin: {
       enabled: Boolean(rawProfile?.services?.zenmindAppServer?.enabled ?? DEFAULT_PROFILE.admin.enabled),
-      publicEnabled: Boolean(rawProfile?.access?.adminPublicEnabled ?? DEFAULT_PROFILE.admin.publicEnabled),
+      webEnabled: Boolean(rawProfile?.access?.adminPublicEnabled ?? DEFAULT_PROFILE.admin.webEnabled),
       frontendPort: rawProfile?.services?.zenmindAppServer?.frontendPort ?? DEFAULT_PROFILE.admin.frontendPort,
-      adminPassword: normalizeSecret(rawProfile?.services?.zenmindAppServer?.adminPassword),
-      appMasterPassword: normalizeSecret(rawProfile?.services?.zenmindAppServer?.appMasterPassword)
+      webPasswordBcrypt: getImportedBcryptValue(rawProfile?.services?.zenmindAppServer?.adminPassword),
+      appMasterPasswordBcrypt: getImportedBcryptValue(rawProfile?.services?.zenmindAppServer?.appMasterPassword)
     },
     pan: {
       enabled: Boolean(rawProfile?.services?.panWebclient?.enabled ?? DEFAULT_PROFILE.pan.enabled),
       webEnabled: Boolean(rawProfile?.access?.panWebEnabled ?? DEFAULT_PROFILE.pan.webEnabled),
-      appEnabled: Boolean(rawProfile?.access?.panAppEnabled ?? DEFAULT_PROFILE.pan.appEnabled),
       frontendPort: rawProfile?.services?.panWebclient?.frontendPort ?? DEFAULT_PROFILE.pan.frontendPort,
-      webPassword: normalizeSecret(rawProfile?.services?.panWebclient?.webPassword),
+      webPasswordBcrypt: getImportedBcryptValue(rawProfile?.services?.panWebclient?.webPassword),
       webSessionSecret: String(rawProfile?.services?.panWebclient?.webSessionSecret || "")
     },
     term: {
       enabled: Boolean(rawProfile?.services?.termWebclient?.enabled ?? DEFAULT_PROFILE.term.enabled),
       webEnabled: Boolean(rawProfile?.access?.termWebEnabled ?? DEFAULT_PROFILE.term.webEnabled),
-      appEnabled: Boolean(rawProfile?.access?.termAppEnabled ?? DEFAULT_PROFILE.term.appEnabled),
       frontendPort: rawProfile?.services?.termWebclient?.frontendPort ?? DEFAULT_PROFILE.term.frontendPort,
-      webPassword: normalizeSecret(rawProfile?.services?.termWebclient?.webPassword)
+      webPasswordBcrypt: getImportedBcryptValue(rawProfile?.services?.termWebclient?.webPassword)
     },
     miniApp: {
       enabled: Boolean(rawProfile?.services?.miniAppServer?.enabled ?? DEFAULT_PROFILE.miniApp.enabled),
@@ -224,25 +282,23 @@ function serializeProfile(profile) {
     },
     admin: {
       enabled: normalized.admin.enabled,
-      publicEnabled: normalized.admin.publicEnabled,
+      webEnabled: normalized.admin.webEnabled,
       frontendPort: normalized.admin.frontendPort,
-      adminPassword: normalizeSecret(normalized.admin.adminPassword),
-      appMasterPassword: normalizeSecret(normalized.admin.appMasterPassword)
+      webPasswordBcrypt: normalized.admin.webPasswordBcrypt,
+      appMasterPasswordBcrypt: normalized.admin.appMasterPasswordBcrypt
     },
     pan: {
       enabled: normalized.pan.enabled,
       webEnabled: normalized.pan.webEnabled,
-      appEnabled: normalized.pan.appEnabled,
       frontendPort: normalized.pan.frontendPort,
-      webPassword: normalizeSecret(normalized.pan.webPassword),
+      webPasswordBcrypt: normalized.pan.webPasswordBcrypt,
       webSessionSecret: normalized.pan.webSessionSecret
     },
     term: {
       enabled: normalized.term.enabled,
       webEnabled: normalized.term.webEnabled,
-      appEnabled: normalized.term.appEnabled,
       frontendPort: normalized.term.frontendPort,
-      webPassword: normalizeSecret(normalized.term.webPassword)
+      webPasswordBcrypt: normalized.term.webPasswordBcrypt
     },
     miniApp: {
       enabled: normalized.miniApp.enabled,
@@ -284,8 +340,19 @@ function getFieldElement(name) {
   return namedFields.find((element) => element.name === name) || null;
 }
 
+function getPasswordField(targetPath) {
+  return passwordFields.find((element) => element.dataset.bcryptTarget === targetPath) || null;
+}
+
+function getSensitivePath(element) {
+  return element.dataset.sensitivePath || element.dataset.bcryptTarget || element.name || "";
+}
+
 function getFieldLabel(path) {
-  return getFieldElement(path)?.closest("[data-field-label]")?.dataset.fieldLabel || path;
+  const field = sensitiveFields.find((element) => getSensitivePath(element) === path)
+    || getFieldElement(path)
+    || getPasswordField(path);
+  return field?.closest("[data-field-label]")?.dataset.fieldLabel || path;
 }
 
 function renderFieldValue(element, value) {
@@ -294,6 +361,21 @@ function renderFieldValue(element, value) {
     return;
   }
   element.value = value ?? "";
+}
+
+function renderPasswordFields() {
+  for (const field of passwordFields) {
+    const targetPath = field.dataset.bcryptTarget;
+    field.value = plainPasswordState[targetPath] || "";
+  }
+}
+
+function renderHashStatuses() {
+  for (const node of hashStatusNodes) {
+    const targetPath = node.dataset.hashStatusFor;
+    const hasHash = String(getDeep(state, targetPath) || "").trim().length > 0;
+    node.textContent = hasHash ? "已生成 bcrypt，保存到 JSON 时不会写入明文。" : "输入明文后会立即转换成 bcrypt，JSON 只保存 hash。";
+  }
 }
 
 function enabledGroups() {
@@ -350,11 +432,12 @@ function updateAdvancedSections() {
 }
 
 function getVisibleSensitiveSources(targetPath) {
-  return Array.from(form.querySelectorAll("[data-sensitive='true']")).filter((field) => {
-    if (field.name === targetPath) {
+  return sensitiveFields.filter((field) => {
+    const sourcePath = getSensitivePath(field);
+    if (!sourcePath || sourcePath === targetPath) {
       return false;
     }
-    return String(getDeep(state, field.name) || "").trim().length > 0;
+    return String(getDeep(state, sourcePath) || "").trim().length > 0;
   });
 }
 
@@ -366,6 +449,8 @@ function updateCopyButtons() {
 }
 
 function syncUi() {
+  renderPasswordFields();
+  renderHashStatuses();
   updateMetrics();
   updateProjectNav();
   updatePanels();
@@ -373,20 +458,13 @@ function syncUi() {
   updateCopyButtons();
 }
 
-function renderProfile(profile) {
+function renderProfile(profile, { resetPlainPasswords = false } = {}) {
   state = normalizeProfile(profile);
-  for (const element of namedFields) {
-    renderFieldValue(element, getDeep(state, element.name));
+  if (resetPlainPasswords) {
+    plainPasswordState = {};
   }
   for (const element of namedFields) {
-    if (element.name.endsWith(".plain")) {
-      const plainValue = String(getDeep(state, element.name) || "");
-      const bcryptPath = element.name.replace(/\.plain$/, ".bcrypt");
-      const existingHash = String(getDeep(state, bcryptPath) || "");
-      if (plainValue.trim() && !existingHash.trim()) {
-        computeBcryptForPlainField(element.name, plainValue);
-      }
-    }
+    renderFieldValue(element, getDeep(state, element.name));
   }
   syncUi();
 }
@@ -432,47 +510,24 @@ function setProjectEnabled(projectKey, enabled) {
 
   if (projectKey === "pan" && enabled && !state.pan.webSessionSecret.trim()) {
     state.pan.webSessionSecret = generateSecret();
-    const field = getFieldElement("pan.webSessionSecret");
-    if (field) {
-      renderFieldValue(field, state.pan.webSessionSecret);
+    const secretField = getFieldElement("pan.webSessionSecret");
+    if (secretField) {
+      renderFieldValue(secretField, state.pan.webSessionSecret);
     }
   }
 
-  if (projectKey === "admin" && !enabled) {
-    state.admin.publicEnabled = false;
+  if (projectKey === "admin") {
+    state.admin.webEnabled = enabled ? state.admin.webEnabled || true : false;
   }
-  if (projectKey === "pan" && !enabled) {
-    state.pan.webEnabled = false;
-    state.pan.appEnabled = false;
+  if (projectKey === "pan") {
+    state.pan.webEnabled = enabled ? state.pan.webEnabled || true : false;
   }
-  if (projectKey === "term" && !enabled) {
-    state.term.webEnabled = false;
-    state.term.appEnabled = false;
-  }
-
-  if (projectKey === "admin" && enabled && !state.admin.publicEnabled) {
-    state.admin.publicEnabled = true;
-  }
-  if (projectKey === "pan" && enabled) {
-    state.pan.webEnabled = true;
-    state.pan.appEnabled = true;
-  }
-  if (projectKey === "term" && enabled) {
-    state.term.webEnabled = true;
-    state.term.appEnabled = true;
+  if (projectKey === "term") {
+    state.term.webEnabled = enabled ? state.term.webEnabled || true : false;
   }
 
   renderProfile(state);
   markDirty(true);
-}
-
-async function saveToHandle(handle) {
-  const writable = await handle.createWritable();
-  await writable.write(`${JSON.stringify(serializeProfile(state), null, 2)}\n`);
-  await writable.close();
-  fileHandle = handle;
-  fileStatus.textContent = handle.name;
-  markDirty(false);
 }
 
 function closeCopyDialog() {
@@ -511,7 +566,7 @@ function openCopyDialog(targetPath) {
   const sources = getVisibleSensitiveSources(targetPath);
   copyDialogTitle.textContent = `复制到 ${getFieldLabel(targetPath)}`;
   copyDialogDescription.textContent = sources.length > 0
-    ? "选择当前页已经填写的敏感字段，将它的值直接带入目标字段。"
+    ? "选择当前页已生成的 bcrypt 或 secret，直接带入目标字段。密码输入框不会回显明文。"
     : "当前页还没有其他已填写的敏感字段。";
   copySourceList.replaceChildren();
 
@@ -525,8 +580,8 @@ function openCopyDialog(targetPath) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "copy-source-button";
-      button.dataset.sourcePath = sourceField.name;
-      button.innerHTML = `<span>${getFieldLabel(sourceField.name)}</span><small>已填写</small>`;
+      button.dataset.sourcePath = getSensitivePath(sourceField);
+      button.innerHTML = `<span>${getFieldLabel(getSensitivePath(sourceField))}</span><small>已填写</small>`;
       copySourceList.append(button);
     }
   }
@@ -534,7 +589,17 @@ function openCopyDialog(targetPath) {
   showCopyDialog();
 }
 
-/* --- IntersectionObserver: scroll spy for nav highlight --- */
+function computeBcrypt(plainValue) {
+  if (!plainValue || !plainValue.trim()) {
+    return "";
+  }
+  if (typeof dcodeIO !== "undefined" && dcodeIO.bcrypt) {
+    const salt = dcodeIO.bcrypt.genSaltSync(BCRYPT_SALT_ROUNDS);
+    return dcodeIO.bcrypt.hashSync(plainValue, salt);
+  }
+  console.error("bcrypt.js is unavailable, cannot generate hash.");
+  return "";
+}
 
 const sectionObserver = new IntersectionObserver(
   (entries) => {
@@ -555,40 +620,33 @@ for (const panel of viewPanels) {
   sectionObserver.observe(panel);
 }
 
-/* --- bcrypt auto-hash for password fields --- */
-
-const BCRYPT_SALT_ROUNDS = 10;
-
-function computeBcryptForPlainField(plainPath, plainValue) {
-  if (!plainPath.endsWith(".plain")) {
-    return;
-  }
-  const bcryptPath = plainPath.replace(/\.plain$/, ".bcrypt");
-  if (!plainValue || !plainValue.trim()) {
-    setDeep(state, bcryptPath, "");
-    return;
-  }
-  if (typeof dcodeIO !== "undefined" && dcodeIO.bcrypt) {
-    const salt = dcodeIO.bcrypt.genSaltSync(BCRYPT_SALT_ROUNDS);
-    const hash = dcodeIO.bcrypt.hashSync(plainValue, salt);
-    setDeep(state, bcryptPath, hash);
-  }
-}
-
-/* --- Event listeners --- */
-
 form.addEventListener("input", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
     return;
   }
+
+  if (target.dataset.bcryptTarget) {
+    const bcryptPath = target.dataset.bcryptTarget;
+    plainPasswordState[bcryptPath] = target.value;
+    if (target.value.trim()) {
+      const hash = computeBcrypt(target.value);
+      if (hash) {
+        setDeep(state, bcryptPath, hash);
+        markDirty(true);
+      } else {
+        syncUi();
+      }
+    } else {
+      syncUi();
+    }
+    return;
+  }
+
   const value = normalizeFieldValue(target);
   setDeep(state, target.name, value);
   if (target.name === "website.domain") {
     target.value = value;
-  }
-  if (target.name.endsWith(".plain")) {
-    computeBcryptForPlainField(target.name, String(value));
   }
   markDirty(true);
 });
@@ -628,7 +686,15 @@ document.addEventListener("click", (event) => {
     const sourcePath = sourceButton.dataset.sourcePath;
     const value = getDeep(state, sourcePath);
     setDeep(state, copyTargetPath, value);
-    renderFieldValue(getFieldElement(copyTargetPath), value);
+    plainPasswordState[copyTargetPath] = "";
+    const namedField = getFieldElement(copyTargetPath);
+    if (namedField) {
+      renderFieldValue(namedField, value);
+    }
+    const passwordField = getPasswordField(copyTargetPath);
+    if (passwordField) {
+      passwordField.value = "";
+    }
     markDirty(true);
     dismissCopyDialog();
     return;
@@ -653,7 +719,7 @@ copyCloseButton.addEventListener("click", () => {
 });
 
 document.querySelector("#load-example").addEventListener("click", () => {
-  renderProfile(DEFAULT_PROFILE);
+  renderProfile(DEFAULT_PROFILE, { resetPlainPasswords: true });
   fileHandle = null;
   fileStatus.textContent = "示例配置（未绑定文件）";
   markDirty(true);
@@ -669,7 +735,7 @@ fileInput.addEventListener("change", async (event) => {
     return;
   }
   const parsed = JSON.parse(await file.text());
-  renderProfile(parsed);
+  renderProfile(parsed, { resetPlainPasswords: true });
   fileHandle = null;
   fileStatus.textContent = `${file.name}（导入）`;
   markDirty(true);
@@ -686,6 +752,15 @@ document.querySelector("#export-json").addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
+async function saveToHandle(handle) {
+  const writable = await handle.createWritable();
+  await writable.write(`${JSON.stringify(serializeProfile(state), null, 2)}\n`);
+  await writable.close();
+  fileHandle = handle;
+  fileStatus.textContent = handle.name;
+  markDirty(false);
+}
+
 document.querySelector("#open-file").addEventListener("click", async () => {
   if (window.showOpenFilePicker) {
     try {
@@ -696,7 +771,7 @@ document.querySelector("#open-file").addEventListener("click", async () => {
         return;
       }
       const file = await handle.getFile();
-      renderProfile(JSON.parse(await file.text()));
+      renderProfile(JSON.parse(await file.text()), { resetPlainPasswords: true });
       fileHandle = handle;
       fileStatus.textContent = handle.name;
       markDirty(false);
@@ -734,5 +809,5 @@ document.querySelector("#save-file").addEventListener("click", async () => {
   }
 });
 
-renderProfile(DEFAULT_PROFILE);
+renderProfile(DEFAULT_PROFILE, { resetPlainPasswords: true });
 markDirty(false);

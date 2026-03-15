@@ -43,10 +43,10 @@ test("applyProfile writes expected outputs for v2 profile", () => {
   const profile = getDefaultProfile();
   profile.website.domain = "demo.example.com";
   profile.cloudflared.tunnelUuid = "demo-tunnel";
-  profile.admin.adminPassword.bcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
-  profile.admin.appMasterPassword.bcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
-  profile.pan.webPassword.bcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
-  profile.term.webPassword.bcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.admin.webPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.admin.appMasterPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.pan.webPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.term.webPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
   profile.mcp.enabled = true;
 
   applyProfile({
@@ -69,6 +69,8 @@ test("applyProfile writes expected outputs for v2 profile", () => {
   assert.match(composeEnv, /CLOUDFLARED_TUNNEL_UUID=demo-tunnel/);
   assert.match(appEnv, /AUTH_ISSUER=https:\/\/demo\.example\.com/);
   assert.match(termEnv, /APP_AUTH_ISSUER=https:\/\/demo\.example\.com/);
+  assert.match(gatewayNginx, /location \^~ \/apppan\/ \{ proxy_pass http:\/\/pan_webclient_frontend; \}/);
+  assert.match(gatewayNginx, /location \^~ \/appterm\/ \{ proxy_pass http:\/\/term_webclient_frontend; \}/);
   assert.match(gatewayNginx, /location = \/api\/mcp\/imagine \{ proxy_pass http:\/\/mcp_server_imagine\/mcp; \}/);
   assert.match(startupConfig, /zenmind-voice-server/);
   assert.match(startupConfig, /mcp-server-email/);
@@ -79,10 +81,10 @@ test("applyProfile writes expected outputs for v2 profile", () => {
 test("mcp disabled removes MCP startup and routes", () => {
   const { workspaceRoot, reposRoot } = makeWorkspace();
   const profile = getDefaultProfile();
-  profile.admin.adminPassword.bcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
-  profile.admin.appMasterPassword.bcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
-  profile.pan.webPassword.bcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
-  profile.term.webPassword.bcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.admin.webPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.admin.appMasterPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.pan.webPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.term.webPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
   profile.mcp.enabled = false;
 
   applyProfile({
@@ -161,11 +163,86 @@ test("loadProfile migrates v1 schema to v2", () => {
   assert.equal(profile.cloudflared.tunnelUuid, "legacy-tunnel");
   assert.equal(profile.gateway.listenPort, 12000);
   assert.equal(profile.agentPlatformRunner.baseUrl, "http://runner.internal:11949");
-  assert.equal(profile.admin.publicEnabled, false);
+  assert.equal(profile.admin.webEnabled, false);
   assert.equal(profile.admin.frontendPort, 12050);
   assert.equal(profile.pan.webSessionSecret, "pan-secret");
   assert.equal(profile.term.enabled, false);
   assert.equal(profile.miniApp.publicBase, "/mini");
   assert.equal(profile.mcp.enabled, true);
   assert.equal("publicOrigin" in profile.website, false);
+  assert.equal("publicEnabled" in profile.admin, false);
+  assert.equal("appEnabled" in profile.pan, false);
+  assert.equal("appEnabled" in profile.term, false);
+});
+
+test("legacy plaintext secrets still flow into env generation", () => {
+  const { workspaceRoot, reposRoot } = makeWorkspace();
+  const legacyProfilePath = path.join(workspaceRoot, "config", "legacy-plain.json");
+  fs.writeFileSync(legacyProfilePath, JSON.stringify({
+    profileVersion: 1,
+    website: {
+      publicOrigin: "https://legacy-secret.example.com"
+    },
+    services: {
+      zenmindAppServer: {
+        enabled: true,
+        adminPassword: { plain: "admin-plain" },
+        appMasterPassword: { plain: "master-plain" }
+      },
+      panWebclient: {
+        enabled: true,
+        webPassword: { plain: "pan-plain" }
+      },
+      termWebclient: {
+        enabled: true,
+        webPassword: { plain: "term-plain" }
+      }
+    }
+  }, null, 2));
+
+  const profile = loadProfile(legacyProfilePath);
+  applyProfile({
+    profile,
+    workspaceRoot,
+    reposRoot,
+    bcryptScriptPath: "/bin/echo"
+  });
+
+  const appEnv = fs.readFileSync(path.join(reposRoot, "zenmind-app-server", ".env"), "utf8");
+  const panEnv = fs.readFileSync(path.join(reposRoot, "pan-webclient", ".env"), "utf8");
+  const termEnv = fs.readFileSync(path.join(reposRoot, "term-webclient", ".env"), "utf8");
+
+  assert.match(appEnv, /AUTH_ADMIN_PASSWORD_BCRYPT=admin-plain/);
+  assert.match(appEnv, /AUTH_APP_MASTER_PASSWORD_BCRYPT=master-plain/);
+  assert.match(panEnv, /AUTH_PASSWORD_HASH_BCRYPT=pan-plain/);
+  assert.match(termEnv, /AUTH_PASSWORD_HASH_BCRYPT=term-plain/);
+});
+
+test("app routes follow service enablement instead of a separate app switch", () => {
+  const { workspaceRoot, reposRoot } = makeWorkspace();
+  const profile = getDefaultProfile();
+  profile.admin.webPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.admin.appMasterPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.pan.webPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.term.webPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
+  profile.pan.webEnabled = false;
+  profile.term.webEnabled = false;
+
+  applyProfile({
+    profile,
+    workspaceRoot,
+    reposRoot,
+    bcryptScriptPath: "/bin/echo"
+  });
+
+  const gatewayNginx = fs.readFileSync(path.join(workspaceRoot, "generated", "gateway", "nginx.conf"), "utf8");
+
+  assert.match(gatewayNginx, /location = \/pan \{ return 404; \}/);
+  assert.match(gatewayNginx, /location \^~ \/pan\/ \{ return 404; \}/);
+  assert.match(gatewayNginx, /location = \/apppan \{ return 301 \/apppan\/; \}/);
+  assert.match(gatewayNginx, /location \^~ \/apppan\/ \{ proxy_pass http:\/\/pan_webclient_frontend; \}/);
+  assert.match(gatewayNginx, /location = \/term \{ return 404; \}/);
+  assert.match(gatewayNginx, /location \^~ \/term\/ \{ return 404; \}/);
+  assert.match(gatewayNginx, /location = \/appterm \{ return 301 \/appterm\/; \}/);
+  assert.match(gatewayNginx, /location \^~ \/appterm\/ \{ proxy_pass http:\/\/term_webclient_frontend; \}/);
 });

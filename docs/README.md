@@ -14,8 +14,8 @@ ZenMind 现在是 sibling repo 形态的总控仓：
 | `gateway` | `11945` | Nginx 网关容器，提供 `/admin` `/pan` `/term` `/ma` `/api/voice` `/api/mcp/*` |
 | `zenmind-app-server` | `11950` | 管理台入口；backend 仅容器内访问 |
 | `zenmind-voice-server` | `11953` | 仅接入 `/api/voice/*` |
-| `pan-webclient` | `11946` | `/pan/*` 与 `/apppan/*` |
-| `term-webclient` | `11947` | `/term/*` 与 `/appterm/*` |
+| `pan-webclient` | `11946` | `/pan/*` 与随服务启用的 `/apppan/*` |
+| `term-webclient` | `11947` | `/term/*` 与随服务启用的 `/appterm/*` |
 | `mini-app-server` | `11948` | `/ma/*` |
 | `agent-platform-runner` | `11949` | 保持宿主机现状，网关反代 `/api/ap/*` |
 | `mcp-server-imagine` | `11962` | 容器内 `/mcp`，宿主机端口可关 |
@@ -31,6 +31,8 @@ ZenMind 现在是 sibling repo 形态的总控仓：
 - 启动列表：[`config/startup-services.conf`](/Users/linlay-macmini/Project/zenmind/zenmind/config/startup-services.conf)
 
 `config/zenmind.profile.local.json` 是唯一主维护配置源。各 sibling repo 的 `.env`、`configs/*.yml`、根仓 `generated/` 下文件都是由 `apply-config` 生成的，不建议手工长期维护。
+
+密码在编辑页中以明文输入，但保存到 JSON 时只写入对应的 bcrypt 字段，不会写入 `plain`。
 
 ## 使用方式
 
@@ -74,9 +76,9 @@ Linux:
 - `/api/auth` `/api/app` `/oauth2` `/openid`：`zenmind-app-server backend`
 - `/api/voice/*`：`zenmind-voice-server`
 - `/pan/*`：浏览器网盘入口，可关闭
-- `/apppan/*`：App 网盘入口，可关闭
+- `/apppan/*`：App 网盘入口，随网盘服务启用
 - `/term/*`：浏览器终端入口，可关闭
-- `/appterm/*`：App 终端入口，可关闭
+- `/appterm/*`：App 终端入口，随终端服务启用
 - `/ma/*`：`mini-app-server`
 - `/api/ap/*`：宿主机 `agent-platform-runner`
 - `/api/mcp/mock|email|bash|imagine`：对应 MCP 容器 `/mcp`

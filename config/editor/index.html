@@ -214,27 +214,29 @@
               <div class="field-grid">
                 <div class="field-card" data-field-label="Admin 登录明文">
                   <label class="field-label" for="field-admin-password">Admin 登录明文</label>
-                  <p class="field-description">管理后台登录密码，应用配置时会自动生成 bcrypt。</p>
+                  <p class="field-description">页面输入的是明文，保存到 JSON 时只会写入 bcrypt。</p>
                   <div class="field-row">
-                    <input id="field-admin-password" name="admin.adminPassword.plain" type="password" data-sensitive="true">
-                    <button type="button" class="copy-button" data-copy-target="admin.adminPassword.plain">复制来源</button>
+                    <input id="field-admin-password" type="password" autocomplete="new-password" data-bcrypt-target="admin.webPasswordBcrypt" data-sensitive="true" data-sensitive-path="admin.webPasswordBcrypt">
+                    <button type="button" class="copy-button" data-copy-target="admin.webPasswordBcrypt">复制来源</button>
                   </div>
+                  <p class="field-description" data-hash-status-for="admin.webPasswordBcrypt">输入明文后会立即转换成 bcrypt，JSON 只保存 hash。</p>
                 </div>
 
                 <div class="field-card" data-field-label="App Master 明文">
                   <label class="field-label" for="field-app-master-password">App Master 明文</label>
-                  <p class="field-description">用于 App 登录主凭据，通常只在首次部署时设置。</p>
+                  <p class="field-description">用于 App 登录主凭据，页面只暂存明文，导出时不会写入原文。</p>
                   <div class="field-row">
-                    <input id="field-app-master-password" name="admin.appMasterPassword.plain" type="password" data-sensitive="true">
-                    <button type="button" class="copy-button" data-copy-target="admin.appMasterPassword.plain">复制来源</button>
+                    <input id="field-app-master-password" type="password" autocomplete="new-password" data-bcrypt-target="admin.appMasterPasswordBcrypt" data-sensitive="true" data-sensitive-path="admin.appMasterPasswordBcrypt">
+                    <button type="button" class="copy-button" data-copy-target="admin.appMasterPasswordBcrypt">复制来源</button>
                   </div>
+                  <p class="field-description" data-hash-status-for="admin.appMasterPasswordBcrypt">输入明文后会立即转换成 bcrypt，JSON 只保存 hash。</p>
                 </div>
 
                 <div class="field-card switch-card">
-                  <label class="field-label" for="field-admin-public">管理端公开入口</label>
+                  <label class="field-label" for="field-admin-web">管理端 Web 入口</label>
                   <p class="field-description">控制 `/admin` 与 `/admin/api` 是否对外暴露。</p>
                   <label class="switch">
-                    <input id="field-admin-public" name="admin.publicEnabled" type="checkbox">
+                    <input id="field-admin-web" name="admin.webEnabled" type="checkbox">
                     <span class="switch-ui"></span>
                   </label>
                 </div>
@@ -270,11 +272,12 @@
               <div class="field-grid">
                 <div class="field-card" data-field-label="Pan 登录明文">
                   <label class="field-label" for="field-pan-password">Pan 登录明文</label>
-                  <p class="field-description">网页登录密码，通常是网盘唯一需要手工维护的常用项。</p>
+                  <p class="field-description">网页登录密码，页面会立即转换成 bcrypt，导出 JSON 不保留明文。</p>
                   <div class="field-row">
-                    <input id="field-pan-password" name="pan.webPassword.plain" type="password" data-sensitive="true">
-                    <button type="button" class="copy-button" data-copy-target="pan.webPassword.plain">复制来源</button>
+                    <input id="field-pan-password" type="password" autocomplete="new-password" data-bcrypt-target="pan.webPasswordBcrypt" data-sensitive="true" data-sensitive-path="pan.webPasswordBcrypt">
+                    <button type="button" class="copy-button" data-copy-target="pan.webPasswordBcrypt">复制来源</button>
                   </div>
+                  <p class="field-description" data-hash-status-for="pan.webPasswordBcrypt">输入明文后会立即转换成 bcrypt，JSON 只保存 hash。</p>
                 </div>
 
                 <div class="field-card switch-card">
@@ -289,15 +292,6 @@
 
               <div class="advanced-panel" data-advanced-body="pan" hidden>
                 <div class="field-grid">
-                  <div class="field-card switch-card">
-                    <label class="field-label" for="field-pan-app">网盘 App 入口</label>
-                    <p class="field-description">控制 `/apppan/` App 入口是否开放。</p>
-                    <label class="switch">
-                      <input id="field-pan-app" name="pan.appEnabled" type="checkbox">
-                      <span class="switch-ui"></span>
-                    </label>
-                  </div>
-
                   <div class="field-card">
                     <label class="field-label" for="field-pan-port">网盘前端端口</label>
                     <p class="field-description">低频配置，通常沿用默认值。</p>
@@ -306,7 +300,7 @@
 
                   <div class="field-card" data-field-label="Pan Session Secret">
                     <label class="field-label" for="field-pan-secret">Pan Session Secret</label>
-                    <p class="field-description">首次启用网盘时会自动生成，只有极少数场景才需要手动查看或复制。</p>
+                    <p class="field-description">首次启用网盘时会自动生成；`/apppan` 会随网盘服务启用而开放，不再单独配置。</p>
                     <div class="field-row">
                       <input id="field-pan-secret" name="pan.webSessionSecret" type="text" data-sensitive="true">
                       <button type="button" class="copy-button" data-copy-target="pan.webSessionSecret">复制来源</button>
@@ -335,11 +329,12 @@
               <div class="field-grid">
                 <div class="field-card" data-field-label="Term 登录明文">
                   <label class="field-label" for="field-term-password">Term 登录明文</label>
-                  <p class="field-description">终端网页登录密码，高级认证和 YAML 配置已从主维护面移除。</p>
+                  <p class="field-description">终端网页登录密码，页面会立即转换成 bcrypt，导出 JSON 不保留明文。</p>
                   <div class="field-row">
-                    <input id="field-term-password" name="term.webPassword.plain" type="password" data-sensitive="true">
-                    <button type="button" class="copy-button" data-copy-target="term.webPassword.plain">复制来源</button>
+                    <input id="field-term-password" type="password" autocomplete="new-password" data-bcrypt-target="term.webPasswordBcrypt" data-sensitive="true" data-sensitive-path="term.webPasswordBcrypt">
+                    <button type="button" class="copy-button" data-copy-target="term.webPasswordBcrypt">复制来源</button>
                   </div>
+                  <p class="field-description" data-hash-status-for="term.webPasswordBcrypt">输入明文后会立即转换成 bcrypt，JSON 只保存 hash。</p>
                 </div>
 
                 <div class="field-card switch-card">
@@ -354,18 +349,9 @@
 
               <div class="advanced-panel" data-advanced-body="term" hidden>
                 <div class="field-grid">
-                  <div class="field-card switch-card">
-                    <label class="field-label" for="field-term-app">终端 App 入口</label>
-                    <p class="field-description">控制 `/appterm/` App 入口是否开放。</p>
-                    <label class="switch">
-                      <input id="field-term-app" name="term.appEnabled" type="checkbox">
-                      <span class="switch-ui"></span>
-                    </label>
-                  </div>
-
                   <div class="field-card">
                     <label class="field-label" for="field-term-port">终端前端端口</label>
-                    <p class="field-description">低频配置，通常不需要调整。</p>
+                    <p class="field-description">低频配置，通常不需要调整；`/appterm` 会随终端服务启用而开放。</p>
                     <input id="field-term-port" name="term.frontendPort" type="number">
                   </div>
                 </div>

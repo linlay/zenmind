@@ -14,37 +14,23 @@
   },
   "admin": {
     "enabled": true,
-    "publicEnabled": true,
+    "webEnabled": true,
     "frontendPort": 11950,
-    "adminPassword": {
-      "plain": "change-admin-password",
-      "bcrypt": ""
-    },
-    "appMasterPassword": {
-      "plain": "change-app-master-password",
-      "bcrypt": ""
-    }
+    "webPasswordBcrypt": "",
+    "appMasterPasswordBcrypt": ""
   },
   "pan": {
     "enabled": true,
     "webEnabled": true,
-    "appEnabled": true,
     "frontendPort": 11946,
-    "webPassword": {
-      "plain": "change-pan-password",
-      "bcrypt": ""
-    },
+    "webPasswordBcrypt": "",
     "webSessionSecret": ""
   },
   "term": {
     "enabled": true,
     "webEnabled": true,
-    "appEnabled": true,
     "frontendPort": 11947,
-    "webPassword": {
-      "plain": "change-term-password",
-      "bcrypt": ""
-    }
+    "webPasswordBcrypt": ""
   },
   "miniApp": {
     "enabled": true,
