@@ -1,0 +1,229 @@
+services:
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: zenmind-gateway
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${GATEWAY_LISTEN_IP}:${GATEWAY_PORT}:80"
+    volumes:
+      - ./generated/gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - zenmind-app-server-frontend
+      - zenmind-voice-server
+      - pan-webclient-frontend
+      - term-webclient-frontend
+      - mini-app-server
+      - mcp-server-imagine
+      - mcp-server-bash
+      - mcp-server-mock
+      - mcp-server-email
+    networks:
+      - zenmind-network
+
+  zenmind-app-server-backend:
+    build:
+      context: ../zenmind-app-server/backend
+    container_name: zenmind-app-server-backend
+    restart: unless-stopped
+    env_file:
+      - ../zenmind-app-server/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../zenmind-app-server/data:/data
+    networks:
+      zenmind-network:
+        aliases:
+          - zenmind-app-server-backend
+
+  zenmind-app-server-frontend:
+    build:
+      context: ../zenmind-app-server/frontend
+      args:
+        VITE_BASE_PATH: ${APP_SERVER_VITE_BASE_PATH}
+    container_name: zenmind-app-server-frontend
+    restart: unless-stopped
+    depends_on:
+      - zenmind-app-server-backend
+    environment:
+      BACKEND_TARGET: http://zenmind-app-server-backend:8080
+      STATIC_DIR: /app/dist
+    ports:
+      - "${APP_SERVER_FRONTEND_PORT}:80"
+    networks:
+      zenmind-network:
+        aliases:
+          - zenmind-app-server-frontend
+
+  zenmind-voice-server:
+    build:
+      context: ../zenmind-voice-server
+    container_name: zenmind-voice-server
+    restart: unless-stopped
+    env_file:
+      - ../zenmind-voice-server/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${VOICE_SERVER_PORT}:${VOICE_SERVER_PORT}"
+    networks:
+      zenmind-network:
+        aliases:
+          - zenmind-voice-server
+
+  pan-webclient-api:
+    build:
+      context: ../pan-webclient
+      dockerfile: backend/Dockerfile
+    container_name: pan-webclient-api
+    restart: unless-stopped
+    env_file:
+      - path: ../pan-webclient/.env
+        format: raw
+    volumes:
+      - ../pan-webclient/configs:/app/configs:ro
+      - ../pan-webclient/data:/app/data
+    networks:
+      zenmind-network:
+        aliases:
+          - pan-webclient-api
+          - api
+
+  pan-webclient-frontend:
+    build:
+      context: ../pan-webclient
+      dockerfile: frontend/Dockerfile
+    container_name: pan-webclient-frontend
+    restart: unless-stopped
+    depends_on:
+      - pan-webclient-api
+    ports:
+      - "${PAN_FRONTEND_PORT}:80"
+    networks:
+      zenmind-network:
+        aliases:
+          - pan-webclient-frontend
+
+  term-webclient-backend:
+    build:
+      context: ../term-webclient
+      dockerfile: backend/Dockerfile
+    container_name: term-webclient-backend
+    restart: unless-stopped
+    env_file:
+      - ../term-webclient/.env
+    environment:
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 11937
+      CONFIG_PATH: ./configs/config.docker-host.yml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../term-webclient/data:/app/data
+      - ../term-webclient/configs:/app/configs:ro
+    networks:
+      zenmind-network:
+        aliases:
+          - term-webclient-backend
+
+  term-webclient-frontend:
+    build:
+      context: ../term-webclient
+      dockerfile: frontend/Dockerfile
+    container_name: term-webclient-frontend
+    restart: unless-stopped
+    depends_on:
+      - term-webclient-backend
+    environment:
+      HOST: 0.0.0.0
+      PORT: 11947
+      FRONTEND_HOST: 0.0.0.0
+      FRONTEND_PORT: 11947
+      BACKEND_HOST: term-webclient-backend
+      BACKEND_PORT: 11937
+      BACKEND_ORIGIN: http://term-webclient-backend:11937
+    ports:
+      - "${TERM_FRONTEND_PORT}:11947"
+    networks:
+      zenmind-network:
+        aliases:
+          - term-webclient-frontend
+
+  mini-app-server:
+    build:
+      context: ..
+      dockerfile: zenmind/dockerfiles/mini-app-server.Dockerfile
+    container_name: mini-app-server
+    restart: unless-stopped
+    env_file:
+      - ../mini-app-server/.env
+    ports:
+      - "${MINI_APP_PORT}:11948"
+    networks:
+      zenmind-network:
+        aliases:
+          - mini-app-server
+
+  mcp-server-imagine:
+    build:
+      context: ../mcp-server-imagine
+      dockerfile: Dockerfile
+    container_name: mcp-server-imagine
+    restart: unless-stopped
+    env_file:
+      - ../mcp-server-imagine/.env
+    volumes:
+      - ${MCP_IMAGINE_RUNNER_DATA_ROOT}:/data
+      - ../mcp-server-imagine/configs:/app/configs:ro
+    networks:
+      zenmind-network:
+        aliases:
+          - mcp-server-imagine
+
+  mcp-server-bash:
+    build:
+      context: ../mcp-server-bash
+      dockerfile: Dockerfile
+    container_name: mcp-server-bash
+    restart: unless-stopped
+    env_file:
+      - ../mcp-server-bash/.env
+    networks:
+      zenmind-network:
+        aliases:
+          - mcp-server-bash
+
+  mcp-server-mock:
+    build:
+      context: ../mcp-server-mock
+      dockerfile: Dockerfile
+    container_name: mcp-server-mock
+    restart: unless-stopped
+    env_file:
+      - ../mcp-server-mock/.env
+    networks:
+      zenmind-network:
+        aliases:
+          - mcp-server-mock
+
+  mcp-server-email:
+    build:
+      context: ../mcp-server-email
+      dockerfile: Dockerfile
+    container_name: mcp-server-email
+    restart: unless-stopped
+    env_file:
+      - ../mcp-server-email/.env
+    volumes:
+      - ../mcp-server-email/configs:/app/configs
+    networks:
+      zenmind-network:
+        aliases:
+          - mcp-server-email
+
+networks:
+  zenmind-network:
+    name: zenmind-network
+    driver: bridge

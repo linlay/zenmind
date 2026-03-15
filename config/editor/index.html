@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ZenMind Config Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="rail">
+        <div class="brand">
+          <p class="eyebrow">ZenMind</p>
+          <h1>Config Studio</h1>
+          <p class="lede">本地 HTML 可直接双击打开并维护精简 JSON。日常只配核心项，端口和低频参数都收进高级选项。</p>
+        </div>
+
+        <nav class="project-nav" aria-label="项目导航">
+          <button type="button" class="nav-item is-active" data-select-view="global">
+            <span class="nav-title">全局</span>
+            <span class="nav-meta">站点域名、Tunnel 与 Gateway。</span>
+          </button>
+
+          <button type="button" class="nav-item" data-select-view="runner">
+            <span class="nav-title">Runner</span>
+            <span class="nav-meta">当前只维护基础地址，后续会扩展更多配置。</span>
+          </button>
+
+          <div class="nav-entry">
+            <button type="button" class="nav-item" data-select-view="admin">
+              <span class="nav-title">管理端</span>
+              <span class="nav-meta">后台管理与 App 登录主凭据入口。</span>
+            </button>
+            <label class="nav-switch" aria-label="启用管理端">
+              <input type="checkbox" data-project-toggle="admin">
+              <span class="nav-switch-ui"></span>
+            </label>
+          </div>
+
+          <div class="nav-entry">
+            <button type="button" class="nav-item" data-select-view="pan">
+              <span class="nav-title">网盘</span>
+              <span class="nav-meta">文件访问、网页登录与 App 入口配置。</span>
+            </button>
+            <label class="nav-switch" aria-label="启用网盘">
+              <input type="checkbox" data-project-toggle="pan">
+              <span class="nav-switch-ui"></span>
+            </label>
+          </div>
+
+          <div class="nav-entry">
+            <button type="button" class="nav-item" data-select-view="term">
+              <span class="nav-title">终端</span>
+              <span class="nav-meta">终端浏览器与 App 访问入口配置。</span>
+            </button>
+            <label class="nav-switch" aria-label="启用终端">
+              <input type="checkbox" data-project-toggle="term">
+              <span class="nav-switch-ui"></span>
+            </label>
+          </div>
+
+          <div class="nav-entry">
+            <button type="button" class="nav-item" data-select-view="mini-app">
+              <span class="nav-title">小应用</span>
+              <span class="nav-meta">小程序服务基础访问与模式设置。</span>
+            </button>
+            <label class="nav-switch" aria-label="启用小应用">
+              <input type="checkbox" data-project-toggle="miniApp">
+              <span class="nav-switch-ui"></span>
+            </label>
+          </div>
+
+          <div class="nav-entry">
+            <button type="button" class="nav-item" data-select-view="sandboxes">
+              <span class="nav-title">沙箱</span>
+              <span class="nav-meta">统一管理未来多个沙箱运行环境。</span>
+            </button>
+            <label class="nav-switch" aria-label="启用沙箱">
+              <input type="checkbox" data-project-toggle="sandboxes">
+              <span class="nav-switch-ui"></span>
+            </label>
+          </div>
+
+          <div class="nav-entry">
+            <button type="button" class="nav-item" data-select-view="mcp">
+              <span class="nav-title">MCP 服务</span>
+              <span class="nav-meta">统一管理未来多个 MCP 服务接入。</span>
+            </button>
+            <label class="nav-switch" aria-label="启用 MCP 服务">
+              <input type="checkbox" data-project-toggle="mcp">
+              <span class="nav-switch-ui"></span>
+            </label>
+          </div>
+        </nav>
+
+        <section class="status-card">
+          <p class="eyebrow">文件状态</p>
+          <div class="status-row">
+            <span>当前文件</span>
+            <strong id="file-status">示例配置（未绑定文件）</strong>
+          </div>
+          <div class="status-row">
+            <span>保存状态</span>
+            <strong id="dirty-status">当前内容已保存</strong>
+          </div>
+          <p class="status-note">无需先起本地服务。支持的浏览器会直接保存到本地 JSON；不支持时自动降级为下载导出。</p>
+        </section>
+      </aside>
+
+      <main class="stage">
+        <header class="hero">
+          <div class="hero-text">
+            <p class="eyebrow">ZenMind</p>
+            <h2>精简配置编辑器</h2>
+            <p class="hero-note">只保留高频核心项。旧 JSON 导入后会自动迁移为 v2 聚合结构。</p>
+          </div>
+          <div class="actions">
+            <button id="open-file" type="button" class="ghost">打开本地文件</button>
+            <button id="save-file" type="button" class="solid">保存到本地文件</button>
+            <button id="import-json" type="button" class="ghost">导入 JSON</button>
+            <button id="export-json" type="button" class="accent">导出 JSON</button>
+            <button id="load-example" type="button" class="ghost">加载示例</button>
+          </div>
+        </header>
+
+        <section class="dashboard">
+          <div class="metric">
+            <span>站点入口</span>
+            <strong id="metric-origin">-</strong>
+          </div>
+          <div class="metric">
+            <span>Gateway</span>
+            <strong id="metric-gateway">-</strong>
+          </div>
+          <div class="metric">
+            <span>已启用分组</span>
+            <strong id="metric-groups">-</strong>
+          </div>
+        </section>
+
+        <form id="config-form" class="workspace">
+          <section class="view-panel" id="section-global" data-view="global">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Global</p>
+                <h3>站点基础配置</h3>
+              </div>
+              <button type="button" class="advanced-toggle" data-advanced-toggle="global">高级选项</button>
+            </div>
+
+            <div class="field-grid">
+              <div class="field-card">
+                <label class="field-label" for="field-domain">网站域名</label>
+                <p class="field-description">统一派生站点入口、cloudflared hostname 和 issuer。</p>
+                <div class="prefix-input">
+                  <span>https://</span>
+                  <input id="field-domain" name="website.domain" type="text" autocomplete="off">
+                </div>
+              </div>
+
+              <div class="field-card">
+                <label class="field-label" for="field-tunnel-uuid">Tunnel UUID</label>
+                <p class="field-description">填写已创建 Tunnel 的 UUID，用于生成 Cloudflare 目标配置。</p>
+                <input id="field-tunnel-uuid" name="cloudflared.tunnelUuid" type="text">
+              </div>
+            </div>
+
+            <div class="advanced-panel" data-advanced-body="global" hidden>
+              <div class="field-grid">
+                <div class="field-card">
+                  <label class="field-label" for="field-gateway-port">Gateway 监听端口</label>
+                  <p class="field-description">低频配置，通常保持默认即可。</p>
+                  <input id="field-gateway-port" name="gateway.listenPort" type="number">
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="view-panel" id="section-runner" data-view="runner">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Runner</p>
+                <h3>Agent Platform Runner</h3>
+              </div>
+            </div>
+
+            <div class="field-grid">
+              <div class="field-card field-card-wide">
+                <label class="field-label" for="field-runner-url">Runner 基础地址</label>
+                <p class="field-description">当前只维护一个基础地址，后续会在这个页签继续增加更多 Runner 配置。</p>
+                <input id="field-runner-url" name="agentPlatformRunner.baseUrl" type="text">
+              </div>
+            </div>
+          </section>
+
+          <section class="view-panel" id="section-admin" data-view="admin" data-project-panel="admin">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Admin</p>
+                <h3>管理端</h3>
+                <p class="panel-intro">后台管理与 App 登录主凭据入口。</p>
+              </div>
+              <button type="button" class="advanced-toggle" data-advanced-toggle="admin">高级选项</button>
+            </div>
+
+            <div class="panel-disabled" data-disabled-state="admin" hidden>
+              <p>管理端关闭时不会显示具体配置。打开左侧开关后，再填写登录密码和高级项。</p>
+            </div>
+
+            <div class="panel-body" data-enabled-body="admin">
+              <div class="field-grid">
+                <div class="field-card" data-field-label="Admin 登录明文">
+                  <label class="field-label" for="field-admin-password">Admin 登录明文</label>
+                  <p class="field-description">管理后台登录密码，应用配置时会自动生成 bcrypt。</p>
+                  <div class="field-row">
+                    <input id="field-admin-password" name="admin.adminPassword.plain" type="password" data-sensitive="true">
+                    <button type="button" class="copy-button" data-copy-target="admin.adminPassword.plain">复制来源</button>
+                  </div>
+                </div>
+
+                <div class="field-card" data-field-label="App Master 明文">
+                  <label class="field-label" for="field-app-master-password">App Master 明文</label>
+                  <p class="field-description">用于 App 登录主凭据，通常只在首次部署时设置。</p>
+                  <div class="field-row">
+                    <input id="field-app-master-password" name="admin.appMasterPassword.plain" type="password" data-sensitive="true">
+                    <button type="button" class="copy-button" data-copy-target="admin.appMasterPassword.plain">复制来源</button>
+                  </div>
+                </div>
+
+                <div class="field-card switch-card">
+                  <label class="field-label" for="field-admin-public">管理端公开入口</label>
+                  <p class="field-description">控制 `/admin` 与 `/admin/api` 是否对外暴露。</p>
+                  <label class="switch">
+                    <input id="field-admin-public" name="admin.publicEnabled" type="checkbox">
+                    <span class="switch-ui"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="advanced-panel" data-advanced-body="admin" hidden>
+                <div class="field-grid">
+                  <div class="field-card">
+                    <label class="field-label" for="field-admin-port">管理端前端端口</label>
+                    <p class="field-description">低频配置，默认端口通常不需要改动。</p>
+                    <input id="field-admin-port" name="admin.frontendPort" type="number">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="view-panel" id="section-pan" data-view="pan" data-project-panel="pan">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Pan</p>
+                <h3>网盘</h3>
+                <p class="panel-intro">文件访问、网页登录与 App 入口配置。</p>
+              </div>
+              <button type="button" class="advanced-toggle" data-advanced-toggle="pan">高级选项</button>
+            </div>
+
+            <div class="panel-disabled" data-disabled-state="pan" hidden>
+              <p>网盘关闭时只保留分组开关。开启后先填登录密码，再按需展开高级选项。</p>
+            </div>
+
+            <div class="panel-body" data-enabled-body="pan">
+              <div class="field-grid">
+                <div class="field-card" data-field-label="Pan 登录明文">
+                  <label class="field-label" for="field-pan-password">Pan 登录明文</label>
+                  <p class="field-description">网页登录密码，通常是网盘唯一需要手工维护的常用项。</p>
+                  <div class="field-row">
+                    <input id="field-pan-password" name="pan.webPassword.plain" type="password" data-sensitive="true">
+                    <button type="button" class="copy-button" data-copy-target="pan.webPassword.plain">复制来源</button>
+                  </div>
+                </div>
+
+                <div class="field-card switch-card">
+                  <label class="field-label" for="field-pan-web">网盘浏览器入口</label>
+                  <p class="field-description">控制 `/pan/` 浏览器入口是否开放。</p>
+                  <label class="switch">
+                    <input id="field-pan-web" name="pan.webEnabled" type="checkbox">
+                    <span class="switch-ui"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="advanced-panel" data-advanced-body="pan" hidden>
+                <div class="field-grid">
+                  <div class="field-card switch-card">
+                    <label class="field-label" for="field-pan-app">网盘 App 入口</label>
+                    <p class="field-description">控制 `/apppan/` App 入口是否开放。</p>
+                    <label class="switch">
+                      <input id="field-pan-app" name="pan.appEnabled" type="checkbox">
+                      <span class="switch-ui"></span>
+                    </label>
+                  </div>
+
+                  <div class="field-card">
+                    <label class="field-label" for="field-pan-port">网盘前端端口</label>
+                    <p class="field-description">低频配置，通常沿用默认值。</p>
+                    <input id="field-pan-port" name="pan.frontendPort" type="number">
+                  </div>
+
+                  <div class="field-card" data-field-label="Pan Session Secret">
+                    <label class="field-label" for="field-pan-secret">Pan Session Secret</label>
+                    <p class="field-description">首次启用网盘时会自动生成，只有极少数场景才需要手动查看或复制。</p>
+                    <div class="field-row">
+                      <input id="field-pan-secret" name="pan.webSessionSecret" type="text" data-sensitive="true">
+                      <button type="button" class="copy-button" data-copy-target="pan.webSessionSecret">复制来源</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="view-panel" id="section-term" data-view="term" data-project-panel="term">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Term</p>
+                <h3>终端</h3>
+                <p class="panel-intro">终端浏览器与 App 访问入口配置。</p>
+              </div>
+              <button type="button" class="advanced-toggle" data-advanced-toggle="term">高级选项</button>
+            </div>
+
+            <div class="panel-disabled" data-disabled-state="term" hidden>
+              <p>终端关闭时不显示具体字段。开启后默认只维护登录密码。</p>
+            </div>
+
+            <div class="panel-body" data-enabled-body="term">
+              <div class="field-grid">
+                <div class="field-card" data-field-label="Term 登录明文">
+                  <label class="field-label" for="field-term-password">Term 登录明文</label>
+                  <p class="field-description">终端网页登录密码，高级认证和 YAML 配置已从主维护面移除。</p>
+                  <div class="field-row">
+                    <input id="field-term-password" name="term.webPassword.plain" type="password" data-sensitive="true">
+                    <button type="button" class="copy-button" data-copy-target="term.webPassword.plain">复制来源</button>
+                  </div>
+                </div>
+
+                <div class="field-card switch-card">
+                  <label class="field-label" for="field-term-web">终端浏览器入口</label>
+                  <p class="field-description">控制 `/term/` 浏览器入口是否开放。</p>
+                  <label class="switch">
+                    <input id="field-term-web" name="term.webEnabled" type="checkbox">
+                    <span class="switch-ui"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="advanced-panel" data-advanced-body="term" hidden>
+                <div class="field-grid">
+                  <div class="field-card switch-card">
+                    <label class="field-label" for="field-term-app">终端 App 入口</label>
+                    <p class="field-description">控制 `/appterm/` App 入口是否开放。</p>
+                    <label class="switch">
+                      <input id="field-term-app" name="term.appEnabled" type="checkbox">
+                      <span class="switch-ui"></span>
+                    </label>
+                  </div>
+
+                  <div class="field-card">
+                    <label class="field-label" for="field-term-port">终端前端端口</label>
+                    <p class="field-description">低频配置，通常不需要调整。</p>
+                    <input id="field-term-port" name="term.frontendPort" type="number">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="view-panel" id="section-mini-app" data-view="mini-app" data-project-panel="miniApp">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Mini App</p>
+                <h3>小应用</h3>
+                <p class="panel-intro">小程序服务基础访问与模式设置。</p>
+              </div>
+              <button type="button" class="advanced-toggle" data-advanced-toggle="miniApp">高级选项</button>
+            </div>
+
+            <div class="panel-disabled" data-disabled-state="miniApp" hidden>
+              <p>小应用关闭时不会显示具体配置。开启后只保留模式和公开路径两个常用项。</p>
+            </div>
+
+            <div class="panel-body" data-enabled-body="miniApp">
+              <div class="field-grid">
+                <div class="field-card">
+                  <label class="field-label" for="field-mini-mode">默认 App 模式</label>
+                  <p class="field-description">一般填 `dev` 或 `prod`，决定小应用默认运行模式。</p>
+                  <input id="field-mini-mode" name="miniApp.defaultAppMode" type="text">
+                </div>
+
+                <div class="field-card">
+                  <label class="field-label" for="field-mini-base">公开 Base 路径</label>
+                  <p class="field-description">对外访问小应用的路径前缀，例如 `/ma`。</p>
+                  <input id="field-mini-base" name="miniApp.publicBase" type="text">
+                </div>
+              </div>
+
+              <div class="advanced-panel" data-advanced-body="miniApp" hidden>
+                <div class="field-grid">
+                  <div class="field-card">
+                    <label class="field-label" for="field-mini-port">小应用服务端口</label>
+                    <p class="field-description">低频配置，只有冲突或特殊部署时才需要改。</p>
+                    <input id="field-mini-port" name="miniApp.port" type="number">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="view-panel" id="section-sandboxes" data-view="sandboxes" data-project-panel="sandboxes">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Sandboxes</p>
+                <h3>沙箱</h3>
+                <p class="panel-intro">统一管理未来多个沙箱运行环境。</p>
+              </div>
+            </div>
+            <div class="empty-card">
+              <p>这一版只保留总开关。后续会在这里汇总多个沙箱实例和其运行参数。</p>
+            </div>
+          </section>
+
+          <section class="view-panel" id="section-mcp" data-view="mcp" data-project-panel="mcp">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">MCP</p>
+                <h3>MCP 服务</h3>
+                <p class="panel-intro">统一管理未来多个 MCP 服务接入。</p>
+              </div>
+            </div>
+            <div class="empty-card">
+              <p>当前只有总开关，内部会统一映射已有 `mcp-server-*` 集合。实例级配置留到后续扩展。</p>
+            </div>
+          </section>
+        </form>
+
+        <dialog id="copy-dialog" class="copy-dialog">
+          <form method="dialog" class="copy-dialog-card">
+            <div class="copy-dialog-head">
+              <div>
+                <p class="eyebrow">Copy Source</p>
+                <h3 id="copy-dialog-title">复制来源</h3>
+              </div>
+              <button type="button" class="ghost small" data-copy-close>关闭</button>
+            </div>
+            <p id="copy-dialog-description" class="copy-dialog-description">选择当前页里已填写的敏感字段，将其值带入目标字段。</p>
+            <div id="copy-source-list" class="copy-source-list"></div>
+          </form>
+        </dialog>
+
+        <input id="file-input" type="file" accept="application/json" hidden>
+      </main>
+    </div>
+
+    <script src="./bcrypt.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

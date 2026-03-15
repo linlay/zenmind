@@ -1,0 +1,61 @@
+{
+  "profileVersion": 2,
+  "website": {
+    "domain": "website.example.com"
+  },
+  "cloudflared": {
+    "tunnelUuid": "replace-with-your-tunnel-uuid"
+  },
+  "gateway": {
+    "listenPort": 11945
+  },
+  "agentPlatformRunner": {
+    "baseUrl": "http://host.docker.internal:11949"
+  },
+  "admin": {
+    "enabled": true,
+    "publicEnabled": true,
+    "frontendPort": 11950,
+    "adminPassword": {
+      "plain": "change-admin-password",
+      "bcrypt": ""
+    },
+    "appMasterPassword": {
+      "plain": "change-app-master-password",
+      "bcrypt": ""
+    }
+  },
+  "pan": {
+    "enabled": true,
+    "webEnabled": true,
+    "appEnabled": true,
+    "frontendPort": 11946,
+    "webPassword": {
+      "plain": "change-pan-password",
+      "bcrypt": ""
+    },
+    "webSessionSecret": ""
+  },
+  "term": {
+    "enabled": true,
+    "webEnabled": true,
+    "appEnabled": true,
+    "frontendPort": 11947,
+    "webPassword": {
+      "plain": "change-term-password",
+      "bcrypt": ""
+    }
+  },
+  "miniApp": {
+    "enabled": true,
+    "defaultAppMode": "dev",
+    "publicBase": "/ma",
+    "port": 11948
+  },
+  "sandboxes": {
+    "enabled": false
+  },
+  "mcp": {
+    "enabled": true
+  }
+}

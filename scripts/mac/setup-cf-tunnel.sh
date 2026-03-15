@@ -35,9 +35,9 @@ echo
 need_cmd cloudflared
 need_cmd mkdir
 
-prompt TUNNEL_UUID "请输入 Tunnel UUID"
-prompt HOSTNAME "请输入域名（hostname），例如 app.zenmind.cc"
-prompt LOCAL_PORT "请输入本地转发端口" "11945"
+prompt TUNNEL_UUID "请输入 Tunnel UUID" "${TUNNEL_UUID:-${CLOUDFLARED_TUNNEL_UUID:-}}"
+prompt HOSTNAME "请输入域名（hostname），例如 app.zenmind.cc" "${HOSTNAME:-${CLOUDFLARED_HOSTNAME:-}}"
+prompt LOCAL_PORT "请输入本地转发端口" "${LOCAL_PORT:-${GATEWAY_PORT:-11945}}"
 
 [[ -n "$TUNNEL_UUID" ]] || die "Tunnel UUID 不能为空"
 [[ -n "$HOSTNAME" ]] || die "hostname 不能为空"
