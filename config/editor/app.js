@@ -128,6 +128,13 @@ function stripProtocol(value) {
     .replace(/^\.+|\.+$/g, "");
 }
 
+function normalizeDomainInput(value) {
+  return String(value || "")
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/.*$/, "")
+    .toLowerCase();
+}
+
 function normalizeBcrypt(hash) {
   const trimmed = String(hash || "").trim().replace(/^['"]|['"]$/g, "");
   if (trimmed.startsWith("$2b$")) {
@@ -482,7 +489,7 @@ function normalizeFieldValue(input) {
     return input.value === "" ? "" : Number.parseInt(input.value, 10);
   }
   if (input.name === "website.domain") {
-    return stripProtocol(input.value).toLowerCase();
+    return normalizeDomainInput(input.value);
   }
   return input.value;
 }
