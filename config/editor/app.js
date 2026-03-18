@@ -3,6 +3,10 @@ const DEFAULT_PROFILE = {
   website: {
     domain: "website.example.com"
   },
+  images: {
+    registry: "registry.example.com/zenmind",
+    tag: "latest"
+  },
   cloudflared: {
     tunnelUuid: "replace-with-your-tunnel-uuid"
   },
@@ -171,6 +175,10 @@ function normalizeProfile(rawProfile) {
       website: {
         domain: stripProtocol(rawProfile?.website?.domain || DEFAULT_PROFILE.website.domain).toLowerCase()
       },
+      images: {
+        registry: String(rawProfile?.images?.registry || DEFAULT_PROFILE.images.registry),
+        tag: String(rawProfile?.images?.tag || DEFAULT_PROFILE.images.tag)
+      },
       cloudflared: {
         tunnelUuid: String(rawProfile?.cloudflared?.tunnelUuid || DEFAULT_PROFILE.cloudflared.tunnelUuid)
       },
@@ -227,6 +235,10 @@ function normalizeProfile(rawProfile) {
     website: {
       domain: stripProtocol(rawProfile?.website?.domain || rawProfile?.website?.publicOrigin || rawProfile?.cloudflared?.hostname || DEFAULT_PROFILE.website.domain).toLowerCase()
     },
+    images: {
+      registry: String(rawProfile?.images?.registry || DEFAULT_PROFILE.images.registry),
+      tag: String(rawProfile?.images?.tag || DEFAULT_PROFILE.images.tag)
+    },
     cloudflared: {
       tunnelUuid: String(rawProfile?.cloudflared?.tunnelUuid || DEFAULT_PROFILE.cloudflared.tunnelUuid)
     },
@@ -277,6 +289,10 @@ function serializeProfile(profile) {
     profileVersion: 2,
     website: {
       domain: normalized.website.domain
+    },
+    images: {
+      registry: normalized.images.registry,
+      tag: normalized.images.tag
     },
     cloudflared: {
       tunnelUuid: normalized.cloudflared.tunnelUuid
@@ -490,6 +506,9 @@ function normalizeFieldValue(input) {
   }
   if (input.name === "website.domain") {
     return normalizeDomainInput(input.value);
+  }
+  if (input.name === "images.registry" || input.name === "images.tag") {
+    return input.value.trim();
   }
   return input.value;
 }

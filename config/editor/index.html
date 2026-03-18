@@ -175,6 +175,18 @@
                   <p class="field-description">低频配置，通常保持默认即可。</p>
                   <input id="field-gateway-port" name="gateway.listenPort" type="number">
                 </div>
+
+                <div class="field-card">
+                  <label class="field-label" for="field-image-registry">镜像仓库/命名空间</label>
+                  <p class="field-description">启动时会按 `${registry}/{service}:${tag}` 规则拉取远程镜像。</p>
+                  <input id="field-image-registry" name="images.registry" type="text" autocomplete="off">
+                </div>
+
+                <div class="field-card">
+                  <label class="field-label" for="field-image-tag">镜像 Tag</label>
+                  <p class="field-description">统一控制所有业务镜像 tag，例如 `latest`、`2026-03-18`。</p>
+                  <input id="field-image-tag" name="images.tag" type="text" autocomplete="off">
+                </div>
               </div>
             </div>
           </section>

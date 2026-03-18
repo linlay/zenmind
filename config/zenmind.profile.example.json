@@ -3,6 +3,10 @@
   "website": {
     "domain": "website.example.com"
   },
+  "images": {
+    "registry": "registry.example.com/zenmind",
+    "tag": "latest"
+  },
   "cloudflared": {
     "tunnelUuid": "replace-with-your-tunnel-uuid"
   },

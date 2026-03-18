@@ -42,6 +42,8 @@ test("applyProfile writes expected outputs for v2 profile", () => {
   const { workspaceRoot, reposRoot } = makeWorkspace();
   const profile = getDefaultProfile();
   profile.website.domain = "demo.example.com";
+  profile.images.registry = "registry.demo.local/zenmind";
+  profile.images.tag = "2026.03.18";
   profile.cloudflared.tunnelUuid = "demo-tunnel";
   profile.admin.webPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
   profile.admin.appMasterPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
@@ -65,8 +67,12 @@ test("applyProfile writes expected outputs for v2 profile", () => {
   const mcpEnv = fs.readFileSync(path.join(reposRoot, "mcp-server-email", ".env"), "utf8");
 
   assert.match(composeEnv, /PUBLIC_ORIGIN=https:\/\/demo\.example\.com/);
+  assert.match(composeEnv, /IMAGE_REGISTRY=registry\.demo\.local\/zenmind/);
+  assert.match(composeEnv, /IMAGE_TAG=2026\.03\.18/);
   assert.match(composeEnv, /CLOUDFLARED_HOSTNAME=demo\.example\.com/);
   assert.match(composeEnv, /CLOUDFLARED_TUNNEL_UUID=demo-tunnel/);
+  assert.match(composeEnv, /ZENMIND_APP_SERVER_BACKEND_IMAGE=registry\.demo\.local\/zenmind\/zenmind-app-server-backend:2026\.03\.18/);
+  assert.match(composeEnv, /TERM_WEBCLIENT_FRONTEND_IMAGE=registry\.demo\.local\/zenmind\/term-webclient-frontend:2026\.03\.18/);
   assert.match(appEnv, /AUTH_ISSUER=https:\/\/demo\.example\.com/);
   assert.match(termEnv, /APP_AUTH_ISSUER=https:\/\/demo\.example\.com/);
   assert.match(gatewayNginx, /location \^~ \/apppan\/ \{ proxy_pass http:\/\/pan_webclient_frontend; \}/);
@@ -160,6 +166,8 @@ test("loadProfile migrates v1 schema to v2", () => {
 
   assert.equal(profile.profileVersion, 2);
   assert.equal(profile.website.domain, "legacy.example.com");
+  assert.equal(profile.images.registry, "registry.example.com/zenmind");
+  assert.equal(profile.images.tag, "latest");
   assert.equal(profile.cloudflared.tunnelUuid, "legacy-tunnel");
   assert.equal(profile.gateway.listenPort, 12000);
   assert.equal(profile.agentPlatformRunner.baseUrl, "http://runner.internal:11949");

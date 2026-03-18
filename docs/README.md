@@ -33,42 +33,44 @@ ZenMind 现在是 sibling repo 形态的总控仓：
 `config/zenmind.profile.local.json` 是唯一主维护配置源。各 sibling repo 的 `.env`、`configs/*.yml`、根仓 `generated/` 下文件都是由 `apply-config` 生成的，不建议手工长期维护。
 
 密码在编辑页中以明文输入，但保存到 JSON 时只写入对应的 bcrypt 字段，不会写入 `plain`。
+镜像仓库与 tag 也写进总 JSON；启动时会按 `${images.registry}/{service}:${images.tag}` 规则拉取远程镜像。
 
 ## 使用方式
 
 macOS:
 
 ```bash
-./setup-mac.sh --action precheck
-./setup-mac.sh --action edit-config
-./setup-mac.sh --action apply-config
+./setup-mac.sh --action check
+./setup-mac.sh --action configure --web
+./setup-mac.sh --action configure --cli
+./setup-mac.sh --action configure --sync-only
 ./setup-mac.sh --action start
-./setup-mac.sh --action status
+./setup-mac.sh --action view
+./setup-mac.sh --action view --logs gateway --tail 200
 ./setup-mac.sh --action stop
 ```
 
 Linux:
 
 ```bash
-./setup-linux.sh --action precheck
-./setup-linux.sh --action edit-config
-./setup-linux.sh --action apply-config
+./setup-linux.sh --action check
+./setup-linux.sh --action configure --web
+./setup-linux.sh --action configure --cli
+./setup-linux.sh --action configure --sync-only
 ./setup-linux.sh --action start
-./setup-linux.sh --action status
+./setup-linux.sh --action view
 ./setup-linux.sh --action stop
 ```
 
 ## 动作说明
 
-- `precheck`：检查 `node`、`docker`、`docker compose`，并调用平台 runtime 检查脚本
-- `edit-config`：创建本地 profile（若不存在），并尝试打开单页 HTML 编辑器
-- `apply-config`：将总配置写入 sibling repo 的 `.env/configs`，同时生成根仓 compose env、override 和 gateway `nginx.conf`
-- `start`：先执行 `apply-config`，再根据启动列表启动容器
+- `check`：输出 mac/Linux 环境检测报告，分 Required / Optional / Runtime / Next Steps 展示，并给出安装命令
+- `configure --web`：打开本地单页 HTML 编辑器，只维护总 JSON
+- `configure --cli`：通过命令行向导维护总 JSON
+- `configure --sync-only`：将总 JSON 写入 sibling repo 的 `.env/configs`，同时生成根仓 compose env、override 和 gateway `nginx.conf`
+- `start`：先执行 `configure --sync-only`，再按最终 compose 配置检查本地镜像、缺失则 `docker pull`，然后启动容器
 - `stop`：停止启动列表中的容器
-- `status`：查看 `docker compose ps` 和 gateway `healthz`
-- `configure-startup`：维护启动列表顺序
-- `setup-nginx`：仅生成容器网关 `nginx.conf`；当前部署不再要求宿主机 nginx 接管 `11945`
-- `setup-cf-tunnel`：复用现有 `cloudflared` 脚本，目标 origin 为 `127.0.0.1:11945`
+- `view`：查看 `docker compose ps`、gateway `healthz`、cloudflared 安装/配置/运行状态；可用 `--logs` 查看容器日志
 
 ## 路由契约
 

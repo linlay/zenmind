@@ -34,6 +34,10 @@ const DEFAULT_PROFILE = {
   website: {
     domain: "website.example.com"
   },
+  images: {
+    registry: "registry.example.com/zenmind",
+    tag: "latest"
+  },
   cloudflared: {
     tunnelUuid: "replace-with-your-tunnel-uuid"
   },
@@ -82,6 +86,10 @@ const INTERNAL_DEFAULTS = {
   website: {
     domain: "website.example.com",
     publicOrigin: "https://website.example.com"
+  },
+  images: {
+    registry: "registry.example.com/zenmind",
+    tag: "latest"
   },
   gateway: {
     listenIp: "127.0.0.1",
@@ -300,6 +308,10 @@ function normalizeProfile(rawProfile) {
       website: {
         domain: normalizeDomain(rawProfile?.website?.domain || DEFAULT_PROFILE.website.domain)
       },
+      images: {
+        registry: String(rawProfile?.images?.registry || DEFAULT_PROFILE.images.registry).trim(),
+        tag: String(rawProfile?.images?.tag || DEFAULT_PROFILE.images.tag).trim()
+      },
       cloudflared: {
         tunnelUuid: String(rawProfile?.cloudflared?.tunnelUuid || DEFAULT_PROFILE.cloudflared.tunnelUuid)
       },
@@ -365,6 +377,10 @@ function normalizeProfile(rawProfile) {
     website: {
       domain: websiteDomain || DEFAULT_PROFILE.website.domain
     },
+    images: {
+      registry: String(rawProfile?.images?.registry || DEFAULT_PROFILE.images.registry).trim(),
+      tag: String(rawProfile?.images?.tag || DEFAULT_PROFILE.images.tag).trim()
+    },
     cloudflared: {
       tunnelUuid: String(rawProfile?.cloudflared?.tunnelUuid || DEFAULT_PROFILE.cloudflared.tunnelUuid)
     },
@@ -427,6 +443,10 @@ function serializeProfile(profile) {
     profileVersion: 2,
     website: {
       domain: normalized.website.domain
+    },
+    images: {
+      registry: normalized.images.registry,
+      tag: normalized.images.tag
     },
     cloudflared: {
       tunnelUuid: normalized.cloudflared.tunnelUuid
@@ -505,6 +525,8 @@ function expandProfile(profile, reposRoot) {
 
   detailed.website.domain = normalized.website.domain;
   detailed.website.publicOrigin = websiteOrigin;
+  detailed.images.registry = normalized.images.registry;
+  detailed.images.tag = normalized.images.tag;
   detailed.gateway.listenPort = normalized.gateway.listenPort;
   detailed.cloudflared.hostname = normalized.website.domain;
   detailed.cloudflared.tunnelUuid = normalized.cloudflared.tunnelUuid;
@@ -573,6 +595,8 @@ export function validateProfile(profile) {
   const normalized = normalizeProfile(profile);
   assert(normalized.profileVersion === 2, "profileVersion must be 2");
   assert(typeof normalized.website?.domain === "string" && normalized.website.domain.trim(), "website.domain is required");
+  assert(typeof normalized.images?.registry === "string" && normalized.images.registry.trim(), "images.registry is required");
+  assert(typeof normalized.images?.tag === "string" && normalized.images.tag.trim(), "images.tag is required");
   assert(typeof normalized.agentPlatformRunner?.baseUrl === "string" && normalized.agentPlatformRunner.baseUrl.trim(), "agentPlatformRunner.baseUrl is required");
   ensurePort(normalized.gateway.listenPort, "gateway.listenPort");
   ensurePort(normalized.admin.frontendPort, "admin.frontendPort");
@@ -653,9 +677,12 @@ function serviceEnabled(profile, product) {
 }
 
 function renderComposeEnv(profile) {
+  const imageRefs = buildManagedImageRefs(profile);
   return renderEnv([
     commentHeader("Root docker compose variables").trimEnd(),
     `PUBLIC_ORIGIN=${profile.website.publicOrigin}`,
+    `IMAGE_REGISTRY=${quoteEnv(profile.images.registry)}`,
+    `IMAGE_TAG=${quoteEnv(profile.images.tag)}`,
     `CLOUDFLARED_HOSTNAME=${profile.cloudflared.hostname}`,
     `CLOUDFLARED_TUNNEL_UUID=${profile.cloudflared.tunnelUuid}`,
     `CLOUDFLARED_CREDENTIALS_FILE=${normalizePathValue(profile.cloudflared.credentialsFile)}`,
@@ -672,8 +699,39 @@ function renderComposeEnv(profile) {
     `MCP_EMAIL_HOST_PORT=${profile.services.mcpServerEmail.hostPort}`,
     `MCP_MOCK_HOST_PORT=${profile.services.mcpServerMock.hostPort}`,
     `APP_SERVER_VITE_BASE_PATH=${profile.services.zenmindAppServer.viteBasePath}`,
-    `MCP_IMAGINE_RUNNER_DATA_ROOT=${profile.services.mcpServerImagine.runnerDataRoot}`
+    `MCP_IMAGINE_RUNNER_DATA_ROOT=${profile.services.mcpServerImagine.runnerDataRoot}`,
+    `ZENMIND_APP_SERVER_BACKEND_IMAGE=${quoteEnv(imageRefs["zenmind-app-server-backend"])}`,
+    `ZENMIND_APP_SERVER_FRONTEND_IMAGE=${quoteEnv(imageRefs["zenmind-app-server-frontend"])}`,
+    `ZENMIND_VOICE_SERVER_IMAGE=${quoteEnv(imageRefs["zenmind-voice-server"])}`,
+    `PAN_WEBCLIENT_API_IMAGE=${quoteEnv(imageRefs["pan-webclient-api"])}`,
+    `PAN_WEBCLIENT_FRONTEND_IMAGE=${quoteEnv(imageRefs["pan-webclient-frontend"])}`,
+    `TERM_WEBCLIENT_BACKEND_IMAGE=${quoteEnv(imageRefs["term-webclient-backend"])}`,
+    `TERM_WEBCLIENT_FRONTEND_IMAGE=${quoteEnv(imageRefs["term-webclient-frontend"])}`,
+    `MINI_APP_SERVER_IMAGE=${quoteEnv(imageRefs["mini-app-server"])}`,
+    `MCP_SERVER_IMAGINE_IMAGE=${quoteEnv(imageRefs["mcp-server-imagine"])}`,
+    `MCP_SERVER_BASH_IMAGE=${quoteEnv(imageRefs["mcp-server-bash"])}`,
+    `MCP_SERVER_MOCK_IMAGE=${quoteEnv(imageRefs["mcp-server-mock"])}`,
+    `MCP_SERVER_EMAIL_IMAGE=${quoteEnv(imageRefs["mcp-server-email"])}`
   ]);
+}
+
+function buildManagedImageRefs(profile) {
+  const registry = String(profile.images.registry || "").replace(/\/+$/, "");
+  const tag = String(profile.images.tag || "").trim();
+  return {
+    "zenmind-app-server-backend": `${registry}/zenmind-app-server-backend:${tag}`,
+    "zenmind-app-server-frontend": `${registry}/zenmind-app-server-frontend:${tag}`,
+    "zenmind-voice-server": `${registry}/zenmind-voice-server:${tag}`,
+    "pan-webclient-api": `${registry}/pan-webclient-api:${tag}`,
+    "pan-webclient-frontend": `${registry}/pan-webclient-frontend:${tag}`,
+    "term-webclient-backend": `${registry}/term-webclient-backend:${tag}`,
+    "term-webclient-frontend": `${registry}/term-webclient-frontend:${tag}`,
+    "mini-app-server": `${registry}/mini-app-server:${tag}`,
+    "mcp-server-imagine": `${registry}/mcp-server-imagine:${tag}`,
+    "mcp-server-bash": `${registry}/mcp-server-bash:${tag}`,
+    "mcp-server-mock": `${registry}/mcp-server-mock:${tag}`,
+    "mcp-server-email": `${registry}/mcp-server-email:${tag}`
+  };
 }
 
 function renderComposeOverride(profile) {
