@@ -180,7 +180,15 @@ zenmind_run_precheck() {
     zenmind_summary_add_warn "platform runtime check did not fully pass; continuing with direct command checks"
   fi
 
-  command -v node >/dev/null 2>&1 && zenmind_summary_add_ok "node available" || zenmind_summary_add_fail "node missing"
+  if [[ "$ZENMIND_OS" == "linux" ]]; then
+    if setup_check_node20; then
+      zenmind_summary_add_ok "node available"
+    else
+      zenmind_summary_add_fail "Node.js 20+ is required for Linux/WSL; $(setup_node20_install_hint)"
+    fi
+  else
+    command -v node >/dev/null 2>&1 && zenmind_summary_add_ok "node available" || zenmind_summary_add_fail "node missing"
+  fi
   command -v docker >/dev/null 2>&1 && zenmind_summary_add_ok "docker available" || zenmind_summary_add_fail "docker missing"
   if docker compose version >/dev/null 2>&1; then
     zenmind_summary_add_ok "docker compose available"

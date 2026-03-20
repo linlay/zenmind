@@ -51,8 +51,12 @@ setup_check_go126() {
 }
 
 setup_check_node20() {
+  local install_hint
+  install_hint="$(setup_node20_install_hint)"
+
   if ! command -v node >/dev/null 2>&1; then
     setup_err "Node.js not found (required: 20+)"
+    setup_err "$install_hint"
     return 1
   fi
 
@@ -60,6 +64,7 @@ setup_check_node20() {
   version="$(node -v | sed 's/^v//')"
   if ! setup_semver_ge "$version" "20.0.0"; then
     setup_err "Node.js version too low: $version (required: 20+)"
+    setup_err "$install_hint"
     return 1
   fi
 

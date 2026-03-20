@@ -196,23 +196,26 @@ check_install_dependencies() {
     failed=1
   fi
 
+  local node_install_hint
+  node_install_hint="$(setup_node20_install_hint)"
+
   if command -v node >/dev/null 2>&1; then
     version="$(node -v | sed 's/^v//')"
     if setup_semver_ge "$version" "20.0.0"; then
       add_ok "node installed (version v$version)"
     else
-      add_issue "node version too low (v$version, required 20+)" "curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"
+      add_issue "node version too low (v$version, required 20+)" "$node_install_hint"
       failed=1
     fi
   else
-    add_issue "node missing (required: 20+)" "curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"
+    add_issue "node missing (required: 20+)" "$node_install_hint"
     failed=1
   fi
 
   if command -v npm >/dev/null 2>&1; then
     add_ok "npm installed (version $(npm -v))"
   else
-    add_issue "npm missing" "install Node.js 20+ first: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"
+    add_issue "npm missing" "install Node.js 20+ first: $node_install_hint"
     failed=1
   fi
 
