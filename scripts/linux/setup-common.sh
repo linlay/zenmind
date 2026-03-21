@@ -27,6 +27,14 @@ setup_semver_ge() {
   [[ "$(printf '%s\n%s\n' "$required" "$actual" | sort -V | tail -n 1)" == "$actual" ]]
 }
 
+setup_node20_install_command() {
+  printf '%s\n' 'curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs'
+}
+
+setup_node20_install_hint() {
+  printf '%s\n' "install Node.js 20+ in WSL/Ubuntu with: $(setup_node20_install_command)"
+}
+
 setup_check_go126() {
   if ! command -v go >/dev/null 2>&1; then
     setup_err "Go not found (required: 1.26.0+)"
@@ -51,8 +59,12 @@ setup_check_go126() {
 }
 
 setup_check_node20() {
+  local install_hint
+  install_hint="$(setup_node20_install_hint)"
+
   if ! command -v node >/dev/null 2>&1; then
     setup_err "Node.js not found (required: 20+)"
+    setup_err "$install_hint"
     return 1
   fi
 
@@ -60,6 +72,7 @@ setup_check_node20() {
   version="$(node -v | sed 's/^v//')"
   if ! setup_semver_ge "$version" "20.0.0"; then
     setup_err "Node.js version too low: $version (required: 20+)"
+    setup_err "$install_hint"
     return 1
   fi
 

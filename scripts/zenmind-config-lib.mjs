@@ -1115,7 +1115,7 @@ function renderRunnerContainerHubConfig(profile) {
   return `${[
     `enabled: ${profile.services.containerHub.enabled ? "true" : "false"}`,
     `base-url: http://host.docker.internal:${profile.services.containerHub.port}`,
-    `auth-token: ${profile.services.containerHub.authToken}`,
+    `auth-token: ${JSON.stringify(profile.services.containerHub.authToken || "")}`,
     "default-environment-id:",
     "request-timeout-ms: 60000",
     "default-sandbox-level: run",

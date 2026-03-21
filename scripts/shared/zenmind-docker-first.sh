@@ -254,6 +254,17 @@ zenmind_host_service_port() {
   printf '%s\n' "${bind_addr##*:}"
 }
 
+zenmind_host_service_reachable() {
+  local product="$1"
+  local port
+  port="$(zenmind_host_service_port "$product")"
+  if command -v nc >/dev/null 2>&1; then
+    nc -z 127.0.0.1 "$port" >/dev/null 2>&1
+    return $?
+  fi
+  (exec 3<>"/dev/tcp/127.0.0.1/${port}") >/dev/null 2>&1
+}
+
 zenmind_ensure_profile() {
   if [[ ! -f "$(zenmind_profile_path)" ]]; then
     cp "${SCRIPT_DIR}/config/zenmind.profile.example.json" "$(zenmind_profile_path)"
@@ -310,6 +321,32 @@ zenmind_expand_products() {
 
 zenmind_compose_cmd() {
   docker compose --env-file "$(zenmind_compose_env_path)" -f "${SCRIPT_DIR}/docker-compose.yml" -f "$(zenmind_compose_override_path)" "$@"
+}
+
+zenmind_run_precheck() {
+  local check_script
+  check_script="${SCRIPT_DIR}/scripts/${ZENMIND_OS}/check-environment.sh"
+  if [[ -x "$check_script" ]] && "$check_script" --mode runtime; then
+    zenmind_summary_add_ok "runtime environment check passed"
+  else
+    zenmind_summary_add_warn "platform runtime check did not fully pass; continuing with direct command checks"
+  fi
+
+  if [[ "$ZENMIND_OS" == "linux" ]]; then
+    if setup_check_node20; then
+      zenmind_summary_add_ok "node available"
+    else
+      zenmind_summary_add_fail "Node.js 20+ is required for Linux/WSL; $(setup_node20_install_hint)"
+    fi
+  else
+    command -v node >/dev/null 2>&1 && zenmind_summary_add_ok "node available" || zenmind_summary_add_fail "node missing"
+  fi
+  command -v docker >/dev/null 2>&1 && zenmind_summary_add_ok "docker available" || zenmind_summary_add_fail "docker missing"
+  if docker compose version >/dev/null 2>&1; then
+    zenmind_summary_add_ok "docker compose available"
+  else
+    zenmind_summary_add_fail "docker compose missing"
+  fi
 }
 
 zenmind_actual_service_exists() {
@@ -599,7 +636,7 @@ zenmind_start_host_service() {
   bind_addr="$(zenmind_host_service_bind_addr "$product")"
   port="$(zenmind_host_service_port "$product")"
   zenmind_summary_add_ok "started host service: ${product} (PID ${pid:-unknown}, bind ${bind_addr})"
-  if curl -sS -o /dev/null -m 2 "http://127.0.0.1:${port}/api/sessions" 2>/dev/null; then
+  if zenmind_host_service_reachable "$product"; then
     zenmind_summary_add_ok "host service reachable: ${product}"
   else
     zenmind_summary_add_warn "host service port not yet reachable: ${product}"
@@ -634,7 +671,7 @@ zenmind_view_host_service() {
     return 0
   fi
 
-  if curl -sS -o /dev/null -m 2 "http://127.0.0.1:${port}/api/sessions" 2>/dev/null; then
+  if zenmind_host_service_reachable "$product"; then
     zenmind_summary_add_ok "host service reachable: ${product}"
   else
     zenmind_summary_add_warn "host service port not reachable: ${product}"
@@ -664,6 +701,7 @@ zenmind_run_start() {
 
   zenmind_apply_config || return 1
   zenmind_validate_remote_image_config || return 1
+  setup_log "starting host programs"
   for product in "${ZENMIND_HOST_PRODUCTS[@]}"; do
     if zenmind_product_enabled "$product"; then
       zenmind_start_host_service "$product" || return 1
@@ -672,6 +710,7 @@ zenmind_run_start() {
   mapfile -t services < <(zenmind_expand_products) || return 1
   zenmind_prepare_remote_images "${services[@]}" || return 1
 
+  setup_log "starting image products"
   if zenmind_compose_cmd up -d "${services[@]}"; then
     zenmind_summary_add_ok "started selected services"
   else
@@ -693,6 +732,7 @@ zenmind_run_stop() {
   fi
 
   mapfile -t services < <(zenmind_expand_products) || return 1
+  setup_log "stopping image products"
   if zenmind_compose_cmd stop "${services[@]}"; then
     zenmind_summary_add_ok "stopped selected containers"
   else
@@ -700,10 +740,9 @@ zenmind_run_stop() {
     return 1
   fi
 
+  setup_log "stopping host programs"
   for product in "${ZENMIND_HOST_PRODUCTS[@]}"; do
-    if zenmind_product_enabled "$product"; then
-      zenmind_stop_host_service "$product" || return 1
-    fi
+    zenmind_stop_host_service "$product" || return 1
   done
 }
 
@@ -803,11 +842,16 @@ zenmind_run_view() {
 
   zenmind_apply_config || return 1
 
+  setup_log "managed image products"
   zenmind_compose_cmd ps || zenmind_summary_add_warn "docker compose ps returned a non-zero exit code"
+  echo
+  setup_log "managed host programs"
   local product
   for product in "${ZENMIND_HOST_PRODUCTS[@]}"; do
     if zenmind_product_enabled "$product"; then
       zenmind_view_host_service "$product"
+    else
+      zenmind_summary_add_warn "host program disabled by startup config: ${product}"
     fi
   done
   zenmind_check_gateway_health

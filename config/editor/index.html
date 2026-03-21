@@ -24,10 +24,16 @@
             <span class="nav-meta">站点域名、Tunnel 与 Gateway。</span>
           </button>
 
-          <button type="button" class="nav-item" data-select-view="runner">
-            <span class="nav-title">Runner</span>
-            <span class="nav-meta">当前只维护基础地址，后续会扩展更多配置。</span>
-          </button>
+          <div class="nav-entry">
+            <button type="button" class="nav-item" data-select-view="runner">
+              <span class="nav-title">Runner</span>
+              <span class="nav-meta">镜像产品，负责 `/api/ap/*` 与内部 Agent runtime。</span>
+            </button>
+            <label class="nav-switch" aria-label="启用 Runner">
+              <input type="checkbox" data-project-toggle="runner">
+              <span class="nav-switch-ui"></span>
+            </label>
+          </div>
 
           <div class="nav-entry">
             <button type="button" class="nav-item" data-select-view="admin">
@@ -63,23 +69,12 @@
           </div>
 
           <div class="nav-entry">
-            <button type="button" class="nav-item" data-select-view="mini-app">
-              <span class="nav-title">小应用</span>
-              <span class="nav-meta">小程序服务基础访问与模式设置。</span>
+            <button type="button" class="nav-item" data-select-view="container-hub">
+              <span class="nav-title">Container Hub</span>
+              <span class="nav-meta">宿主机程序，为 runner 提供容器沙箱能力。</span>
             </button>
-            <label class="nav-switch" aria-label="启用小应用">
-              <input type="checkbox" data-project-toggle="miniApp">
-              <span class="nav-switch-ui"></span>
-            </label>
-          </div>
-
-          <div class="nav-entry">
-            <button type="button" class="nav-item" data-select-view="sandboxes">
-              <span class="nav-title">沙箱</span>
-              <span class="nav-meta">统一管理未来多个沙箱运行环境。</span>
-            </button>
-            <label class="nav-switch" aria-label="启用沙箱">
-              <input type="checkbox" data-project-toggle="sandboxes">
+            <label class="nav-switch" aria-label="启用 Container Hub">
+              <input type="checkbox" data-project-toggle="containerHub">
               <span class="nav-switch-ui"></span>
             </label>
           </div>
@@ -141,6 +136,19 @@
           </div>
         </section>
 
+        <section class="status-card">
+          <p class="eyebrow">Managed Products</p>
+          <div class="status-row">
+            <span>镜像产品</span>
+            <strong>gateway / app / voice / pan / term / imagine / mock / runner</strong>
+          </div>
+          <div class="status-row">
+            <span>宿主机程序</span>
+            <strong>agent-container-hub</strong>
+          </div>
+          <p class="status-note">`mini-app-server`、`mcp-server-bash`、`mcp-server-email` 已移出当前 setup 纳管范围。</p>
+        </section>
+
         <form id="config-form" class="workspace">
           <section class="view-panel" id="section-global" data-view="global">
             <div class="panel-head">
@@ -196,14 +204,27 @@
               <div>
                 <p class="eyebrow">Runner</p>
                 <h3>Agent Platform Runner</h3>
+                <p class="panel-intro">镜像产品。由 ZenMind docker compose 统一管理，并暴露 `/api/ap/*`。</p>
               </div>
             </div>
 
-            <div class="field-grid">
-              <div class="field-card field-card-wide">
-                <label class="field-label" for="field-runner-url">Runner 基础地址</label>
-                <p class="field-description">当前只维护一个基础地址，后续会在这个页签继续增加更多 Runner 配置。</p>
-                <input id="field-runner-url" name="agentPlatformRunner.baseUrl" type="text">
+            <div class="panel-disabled" data-disabled-state="runner" hidden>
+              <p>Runner 关闭时，Gateway 不再代理 `/api/ap/*`，内部服务也不会使用容器内 runner。</p>
+            </div>
+
+            <div class="panel-body" data-enabled-body="runner">
+              <div class="field-grid">
+                <div class="field-card">
+                  <label class="field-label" for="field-runner-port">Runner 宿主机端口</label>
+                  <p class="field-description">镜像容器内部固定监听 `8080`，这里只维护宿主机映射端口。</p>
+                  <input id="field-runner-port" name="agentPlatformRunner.hostPort" type="number">
+                </div>
+
+                <div class="field-card field-card-wide">
+                  <label class="field-label" for="field-runner-url">兼容基础地址</label>
+                  <p class="field-description">兼容旧配置保留的派生值，保存时会按 Runner 宿主机端口自动写回。</p>
+                  <input id="field-runner-url" name="agentPlatformRunner.baseUrl" type="text" readonly>
+                </div>
               </div>
             </div>
           </section>
@@ -371,57 +392,41 @@
             </div>
           </section>
 
-          <section class="view-panel" id="section-mini-app" data-view="mini-app" data-project-panel="miniApp">
+          <section class="view-panel" id="section-container-hub" data-view="container-hub" data-project-panel="containerHub">
             <div class="panel-head">
               <div>
-                <p class="eyebrow">Mini App</p>
-                <h3>小应用</h3>
-                <p class="panel-intro">小程序服务基础访问与模式设置。</p>
+                <p class="eyebrow">Container Hub</p>
+                <h3>Container Hub</h3>
+                <p class="panel-intro">宿主机程序，由 setup 负责启动、停止与状态查看。</p>
               </div>
-              <button type="button" class="advanced-toggle" data-advanced-toggle="miniApp">高级选项</button>
+              <button type="button" class="advanced-toggle" data-advanced-toggle="containerHub">高级选项</button>
             </div>
 
-            <div class="panel-disabled" data-disabled-state="miniApp" hidden>
-              <p>小应用关闭时不会显示具体配置。开启后只保留模式和公开路径两个常用项。</p>
+            <div class="panel-disabled" data-disabled-state="containerHub" hidden>
+              <p>Container Hub 关闭时，setup 不会启动宿主机进程，runner 的 container-hub 配置也会保持 disabled。</p>
             </div>
 
-            <div class="panel-body" data-enabled-body="miniApp">
+            <div class="panel-body" data-enabled-body="containerHub">
               <div class="field-grid">
                 <div class="field-card">
-                  <label class="field-label" for="field-mini-mode">默认 App 模式</label>
-                  <p class="field-description">一般填 `dev` 或 `prod`，决定小应用默认运行模式。</p>
-                  <input id="field-mini-mode" name="miniApp.defaultAppMode" type="text">
-                </div>
-
-                <div class="field-card">
-                  <label class="field-label" for="field-mini-base">公开 Base 路径</label>
-                  <p class="field-description">对外访问小应用的路径前缀，例如 `/ma`。</p>
-                  <input id="field-mini-base" name="miniApp.publicBase" type="text">
+                  <label class="field-label" for="field-container-hub-port">Container Hub 监听端口</label>
+                  <p class="field-description">宿主机程序默认监听 `127.0.0.1`，runner 容器通过 `host.docker.internal` 访问它。</p>
+                  <input id="field-container-hub-port" name="containerHub.port" type="number">
                 </div>
               </div>
 
-              <div class="advanced-panel" data-advanced-body="miniApp" hidden>
+              <div class="advanced-panel" data-advanced-body="containerHub" hidden>
                 <div class="field-grid">
-                  <div class="field-card">
-                    <label class="field-label" for="field-mini-port">小应用服务端口</label>
-                    <p class="field-description">低频配置，只有冲突或特殊部署时才需要改。</p>
-                    <input id="field-mini-port" name="miniApp.port" type="number">
+                  <div class="field-card field-card-wide" data-field-label="Container Hub Auth Token">
+                    <label class="field-label" for="field-container-hub-token">Container Hub Auth Token</label>
+                    <p class="field-description">默认本地回环监听可以为空；如果后续改成非本地地址，再按需填写。</p>
+                    <div class="field-row">
+                      <input id="field-container-hub-token" name="containerHub.authToken" type="text" data-sensitive="true">
+                      <button type="button" class="copy-button" data-copy-target="containerHub.authToken">复制来源</button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </section>
-
-          <section class="view-panel" id="section-sandboxes" data-view="sandboxes" data-project-panel="sandboxes">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">Sandboxes</p>
-                <h3>沙箱</h3>
-                <p class="panel-intro">统一管理未来多个沙箱运行环境。</p>
-              </div>
-            </div>
-            <div class="empty-card">
-              <p>这一版只保留总开关。后续会在这里汇总多个沙箱实例和其运行参数。</p>
             </div>
           </section>
 
@@ -430,11 +435,11 @@
               <div>
                 <p class="eyebrow">MCP</p>
                 <h3>MCP 服务</h3>
-                <p class="panel-intro">统一管理未来多个 MCP 服务接入。</p>
+                <p class="panel-intro">当前纳管 `mcp-server-imagine` 与 `mcp-server-mock` 两个镜像产品。</p>
               </div>
             </div>
             <div class="empty-card">
-              <p>当前只有总开关，内部会统一映射已有 `mcp-server-*` 集合。实例级配置留到后续扩展。</p>
+              <p>当前只有总开关；`mcp-server-bash` 与 `mcp-server-email` 已移出当前 setup 纳管范围。</p>
             </div>
           </section>
         </form>

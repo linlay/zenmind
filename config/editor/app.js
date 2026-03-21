@@ -14,7 +14,14 @@ const DEFAULT_PROFILE = {
     listenPort: 11945
   },
   agentPlatformRunner: {
-    baseUrl: "http://host.docker.internal:11949"
+    enabled: true,
+    hostPort: 11949,
+    baseUrl: "http://127.0.0.1:11949"
+  },
+  containerHub: {
+    enabled: false,
+    port: 11960,
+    authToken: ""
   },
   admin: {
     enabled: true,
@@ -36,15 +43,6 @@ const DEFAULT_PROFILE = {
     frontendPort: 11947,
     webPasswordBcrypt: ""
   },
-  miniApp: {
-    enabled: true,
-    defaultAppMode: "dev",
-    publicBase: "/ma",
-    port: 11948
-  },
-  sandboxes: {
-    enabled: false
-  },
   mcp: {
     enabled: true
   }
@@ -54,8 +52,8 @@ const PROJECTS = {
   admin: { path: "admin.enabled", label: "管理端" },
   pan: { path: "pan.enabled", label: "网盘" },
   term: { path: "term.enabled", label: "终端" },
-  miniApp: { path: "miniApp.enabled", label: "小应用" },
-  sandboxes: { path: "sandboxes.enabled", label: "沙箱" },
+  runner: { path: "agentPlatformRunner.enabled", label: "Runner" },
+  containerHub: { path: "containerHub.enabled", label: "Container Hub" },
   mcp: { path: "mcp.enabled", label: "MCP 服务" }
 };
 
@@ -139,6 +137,24 @@ function normalizeDomainInput(value) {
     .toLowerCase();
 }
 
+function parsePortFromUrl(value, fallbackPort) {
+  try {
+    const parsed = new URL(String(value || ""));
+    if (parsed.port) {
+      return Number.parseInt(parsed.port, 10);
+    }
+    if (parsed.protocol === "https:") {
+      return 443;
+    }
+    if (parsed.protocol === "http:") {
+      return 80;
+    }
+  } catch {
+    return fallbackPort;
+  }
+  return fallbackPort;
+}
+
 function normalizeBcrypt(hash) {
   const trimmed = String(hash || "").trim().replace(/^['"]|['"]$/g, "");
   if (trimmed.startsWith("$2b$")) {
@@ -170,6 +186,8 @@ function getImportedBcryptValue(secret) {
 
 function normalizeProfile(rawProfile) {
   if (rawProfile?.profileVersion === 2) {
+    const runnerHostPort = rawProfile?.agentPlatformRunner?.hostPort
+      ?? parsePortFromUrl(rawProfile?.agentPlatformRunner?.baseUrl, DEFAULT_PROFILE.agentPlatformRunner.hostPort);
     return {
       profileVersion: 2,
       website: {
@@ -186,7 +204,14 @@ function normalizeProfile(rawProfile) {
         listenPort: rawProfile?.gateway?.listenPort ?? DEFAULT_PROFILE.gateway.listenPort
       },
       agentPlatformRunner: {
-        baseUrl: String(rawProfile?.agentPlatformRunner?.baseUrl || DEFAULT_PROFILE.agentPlatformRunner.baseUrl)
+        enabled: Boolean(rawProfile?.agentPlatformRunner?.enabled ?? DEFAULT_PROFILE.agentPlatformRunner.enabled),
+        hostPort: runnerHostPort,
+        baseUrl: String(rawProfile?.agentPlatformRunner?.baseUrl || `http://127.0.0.1:${runnerHostPort}`)
+      },
+      containerHub: {
+        enabled: Boolean(rawProfile?.containerHub?.enabled ?? rawProfile?.sandboxes?.enabled ?? DEFAULT_PROFILE.containerHub.enabled),
+        port: rawProfile?.containerHub?.port ?? DEFAULT_PROFILE.containerHub.port,
+        authToken: String(rawProfile?.containerHub?.authToken || DEFAULT_PROFILE.containerHub.authToken)
       },
       admin: {
         enabled: Boolean(rawProfile?.admin?.enabled ?? DEFAULT_PROFILE.admin.enabled),
@@ -208,15 +233,6 @@ function normalizeProfile(rawProfile) {
         frontendPort: rawProfile?.term?.frontendPort ?? DEFAULT_PROFILE.term.frontendPort,
         webPasswordBcrypt: getImportedBcryptValue(rawProfile?.term?.webPasswordBcrypt || rawProfile?.term?.webPassword)
       },
-      miniApp: {
-        enabled: Boolean(rawProfile?.miniApp?.enabled ?? DEFAULT_PROFILE.miniApp.enabled),
-        defaultAppMode: String(rawProfile?.miniApp?.defaultAppMode || DEFAULT_PROFILE.miniApp.defaultAppMode),
-        publicBase: String(rawProfile?.miniApp?.publicBase || DEFAULT_PROFILE.miniApp.publicBase),
-        port: rawProfile?.miniApp?.port ?? DEFAULT_PROFILE.miniApp.port
-      },
-      sandboxes: {
-        enabled: Boolean(rawProfile?.sandboxes?.enabled ?? DEFAULT_PROFILE.sandboxes.enabled)
-      },
       mcp: {
         enabled: Boolean(rawProfile?.mcp?.enabled ?? DEFAULT_PROFILE.mcp.enabled)
       }
@@ -229,6 +245,8 @@ function normalizeProfile(rawProfile) {
     rawProfile?.services?.mcpServerMock?.enabled,
     rawProfile?.services?.mcpServerEmail?.enabled
   ].some((value) => value === true);
+  const runnerHostPort = rawProfile?.agentPlatformRunner?.hostPort
+    ?? parsePortFromUrl(rawProfile?.agentPlatformRunner?.baseUrl || rawProfile?.services?.voiceServer?.runnerBaseUrl, DEFAULT_PROFILE.agentPlatformRunner.hostPort);
 
   return {
     profileVersion: 2,
@@ -246,7 +264,14 @@ function normalizeProfile(rawProfile) {
       listenPort: rawProfile?.gateway?.listenPort ?? DEFAULT_PROFILE.gateway.listenPort
     },
     agentPlatformRunner: {
-      baseUrl: String(rawProfile?.agentPlatformRunner?.baseUrl || rawProfile?.services?.voiceServer?.runnerBaseUrl || DEFAULT_PROFILE.agentPlatformRunner.baseUrl)
+      enabled: Boolean(rawProfile?.agentPlatformRunner?.enabled ?? true),
+      hostPort: runnerHostPort,
+      baseUrl: String(rawProfile?.agentPlatformRunner?.baseUrl || rawProfile?.services?.voiceServer?.runnerBaseUrl || `http://127.0.0.1:${runnerHostPort}`)
+    },
+    containerHub: {
+      enabled: Boolean(rawProfile?.containerHub?.enabled ?? rawProfile?.sandboxes?.enabled ?? DEFAULT_PROFILE.containerHub.enabled),
+      port: rawProfile?.containerHub?.port ?? DEFAULT_PROFILE.containerHub.port,
+      authToken: String(rawProfile?.containerHub?.authToken || DEFAULT_PROFILE.containerHub.authToken)
     },
     admin: {
       enabled: Boolean(rawProfile?.services?.zenmindAppServer?.enabled ?? DEFAULT_PROFILE.admin.enabled),
@@ -267,15 +292,6 @@ function normalizeProfile(rawProfile) {
       webEnabled: Boolean(rawProfile?.access?.termWebEnabled ?? DEFAULT_PROFILE.term.webEnabled),
       frontendPort: rawProfile?.services?.termWebclient?.frontendPort ?? DEFAULT_PROFILE.term.frontendPort,
       webPasswordBcrypt: getImportedBcryptValue(rawProfile?.services?.termWebclient?.webPassword)
-    },
-    miniApp: {
-      enabled: Boolean(rawProfile?.services?.miniAppServer?.enabled ?? DEFAULT_PROFILE.miniApp.enabled),
-      defaultAppMode: String(rawProfile?.services?.miniAppServer?.defaultAppMode || DEFAULT_PROFILE.miniApp.defaultAppMode),
-      publicBase: String(rawProfile?.services?.miniAppServer?.publicBase || DEFAULT_PROFILE.miniApp.publicBase),
-      port: rawProfile?.services?.miniAppServer?.port ?? DEFAULT_PROFILE.miniApp.port
-    },
-    sandboxes: {
-      enabled: Boolean(rawProfile?.sandboxes?.enabled ?? DEFAULT_PROFILE.sandboxes.enabled)
     },
     mcp: {
       enabled: legacyMcpEnabled || rawProfile?.mcp?.enabled === true || DEFAULT_PROFILE.mcp.enabled
@@ -301,7 +317,14 @@ function serializeProfile(profile) {
       listenPort: normalized.gateway.listenPort
     },
     agentPlatformRunner: {
-      baseUrl: normalized.agentPlatformRunner.baseUrl
+      enabled: normalized.agentPlatformRunner.enabled,
+      hostPort: normalized.agentPlatformRunner.hostPort,
+      baseUrl: `http://127.0.0.1:${normalized.agentPlatformRunner.hostPort}`
+    },
+    containerHub: {
+      enabled: normalized.containerHub.enabled,
+      port: normalized.containerHub.port,
+      authToken: normalized.containerHub.authToken
     },
     admin: {
       enabled: normalized.admin.enabled,
@@ -322,15 +345,6 @@ function serializeProfile(profile) {
       webEnabled: normalized.term.webEnabled,
       frontendPort: normalized.term.frontendPort,
       webPasswordBcrypt: normalized.term.webPasswordBcrypt
-    },
-    miniApp: {
-      enabled: normalized.miniApp.enabled,
-      defaultAppMode: normalized.miniApp.defaultAppMode,
-      publicBase: normalized.miniApp.publicBase,
-      port: normalized.miniApp.port
-    },
-    sandboxes: {
-      enabled: normalized.sandboxes.enabled
     },
     mcp: {
       enabled: normalized.mcp.enabled
@@ -674,6 +688,13 @@ form.addEventListener("input", (event) => {
   if (target.name === "website.domain") {
     target.value = value;
   }
+  if (target.name === "agentPlatformRunner.hostPort") {
+    state.agentPlatformRunner.baseUrl = `http://127.0.0.1:${state.agentPlatformRunner.hostPort}`;
+    const baseUrlField = getFieldElement("agentPlatformRunner.baseUrl");
+    if (baseUrlField) {
+      renderFieldValue(baseUrlField, state.agentPlatformRunner.baseUrl);
+    }
+  }
   markDirty(true);
 });
 
@@ -734,7 +755,7 @@ document.addEventListener("click", (event) => {
 for (const toggle of navToggles) {
   toggle.addEventListener("change", () => {
     setProjectEnabled(toggle.dataset.projectToggle, toggle.checked);
-    const targetView = toggle.dataset.projectToggle === "miniApp" ? "mini-app" : toggle.dataset.projectToggle;
+    const targetView = toggle.dataset.projectToggle === "containerHub" ? "container-hub" : toggle.dataset.projectToggle;
     setSelectedView(targetView);
   });
 }

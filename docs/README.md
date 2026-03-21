@@ -9,26 +9,30 @@ ZenMind 现在是 sibling repo 形态的总控仓：
 
 ## 当前纳管服务
 
-| 产品 | 默认端口 | 说明 |
-|---|---:|---|
-| `gateway` | `11945` | Nginx 网关容器，提供 `/admin` `/pan` `/term` `/ma` `/api/voice` `/api/mcp/*` |
-| `zenmind-app-server` | `11950` | 管理台入口；backend 仅容器内访问 |
-| `zenmind-voice-server` | `11953` | 仅接入 `/api/voice/*` |
-| `pan-webclient` | `11946` | `/pan/*` 与随服务启用的 `/apppan/*` |
-| `term-webclient` | `11947` | `/term/*` 与随服务启用的 `/appterm/*` |
-| `mini-app-server` | `11948` | `/ma/*` |
-| `agent-platform-runner` | `11949` | 保持宿主机现状，网关反代 `/api/ap/*` |
-| `mcp-server-imagine` | `11962` | 容器内 `/mcp`，宿主机端口可关 |
-| `mcp-server-bash` | `11963` | 容器内 `/mcp`，宿主机端口可关 |
-| `mcp-server-email` | `11967` | 容器内 `/mcp`，宿主机端口可关 |
-| `mcp-server-mock` | `11969` | 容器内 `/mcp`，宿主机端口可关 |
+| 产品 | 运行形态 | 默认端口 | 说明 |
+|---|---|---:|---|
+| `gateway` | 镜像 | `11945` | Nginx 网关容器，提供 `/admin` `/pan` `/term` `/api/voice` `/api/ap` `/api/mcp/*` |
+| `zenmind-app-server` | 镜像 | `11950` | 管理台入口；backend 仅容器内访问 |
+| `zenmind-voice-server` | 镜像 | `11953` | 仅接入 `/api/voice/*`，内部调用容器内 runner |
+| `pan-webclient` | 镜像 | `11946` | `/pan/*` 与随服务启用的 `/apppan/*` |
+| `term-webclient` | 镜像 | `11947` | `/term/*` 与随服务启用的 `/appterm/*` |
+| `mcp-server-imagine` | 镜像 | `11962` | 容器内 `/mcp`，宿主机端口可关 |
+| `mcp-server-mock` | 镜像 | `11969` | 容器内 `/mcp`，宿主机端口可关 |
+| `agent-platform-runner` | 镜像 | `11949` | 由根仓 `docker compose` 管理，网关反代 `/api/ap/*` 到容器内 `8080` |
+| `agent-container-hub` | 宿主机程序 | `11960` | 从 sibling repo 以 `go run ./cmd/agent-container-hub` 启动，供 runner 通过 `host.docker.internal` 访问 |
+
+当前不由 setup 纳管的产品：
+
+- `mini-app-server`
+- `mcp-server-bash`
+- `mcp-server-email`
 
 ## 配置文件
 
-- 示例模板：[`config/zenmind.profile.example.json`](/Users/linlay-macmini/Project/zenmind/zenmind/config/zenmind.profile.example.json)
+- 示例模板：[`config/zenmind.profile.example.json`](/Users/linlay/Project/zenmind/zenmind/config/zenmind.profile.example.json)
 - 本地真实配置：`config/zenmind.profile.local.json`
-- 配置编辑页：[`config/editor/index.html`](/Users/linlay-macmini/Project/zenmind/zenmind/config/editor/index.html)
-- 启动列表：[`config/startup-services.conf`](/Users/linlay-macmini/Project/zenmind/zenmind/config/startup-services.conf)
+- 配置编辑页：[`config/editor/index.html`](/Users/linlay/Project/zenmind/zenmind/config/editor/index.html)
+- 启动列表：[`config/startup-services.conf`](/Users/linlay/Project/zenmind/zenmind/config/startup-services.conf)
 
 `config/zenmind.profile.local.json` 是唯一主维护配置源。各 sibling repo 的 `.env`、`configs/*.yml`、根仓 `generated/` 下文件都是由 `apply-config` 生成的，不建议手工长期维护。
 
@@ -48,6 +52,7 @@ macOS:
 ./setup-mac.sh --action start
 ./setup-mac.sh --action view
 ./setup-mac.sh --action view --logs gateway --tail 200
+./setup-mac.sh --action view --logs agent-container-hub --tail 200
 ./setup-mac.sh --action stop
 ```
 
@@ -70,9 +75,9 @@ Linux:
 - `configure --web`：打开本地单页 HTML 编辑器，只维护总 JSON
 - `configure --cli`：通过命令行向导维护总 JSON
 - `configure --sync-only`：将总 JSON 写入 sibling repo 的 `.env/configs`，同时生成根仓 compose env、override 和 gateway `nginx.conf`
-- `start`：先执行 `configure --sync-only`，再按最终 compose 配置检查本地镜像、缺失则 `docker pull`，然后启动容器
-- `stop`：停止启动列表中的容器
-- `view`：查看 `docker compose ps`、gateway `healthz`、cloudflared 安装/配置/运行状态；可用 `--logs` 查看容器日志
+- `start`：先执行 `configure --sync-only`，再先启动 startup list 中的宿主机程序，然后检查镜像、缺失则 `docker pull`，最后启动镜像产品容器
+- `stop`：先停止 startup list 中的镜像容器，再停止 ZenMind 管理的宿主机程序
+- `view`：分组查看镜像产品状态、宿主机程序状态、gateway `healthz`、cloudflared 安装/配置/运行状态；可用 `--logs` 查看容器日志或 `agent-container-hub` 宿主机日志
 
 ## 路由契约
 
@@ -83,9 +88,8 @@ Linux:
 - `/apppan/*`：App 网盘入口，随网盘服务启用
 - `/term/*`：浏览器终端入口，可关闭
 - `/appterm/*`：App 终端入口，随终端服务启用
-- `/ma/*`：`mini-app-server`
-- `/api/ap/*`：宿主机 `agent-platform-runner`
-- `/api/mcp/mock|email|bash|imagine`：对应 MCP 容器 `/mcp`
+- `/api/ap/*`：容器内 `agent-platform-runner`
+- `/api/mcp/mock|imagine`：对应 MCP 容器 `/mcp`
 
 访问关闭策略统一由网关返回 `404`。
 
@@ -104,7 +108,7 @@ Linux:
 根仓 `apply-config` 后会生成：
 
 - [`generated/docker-compose.env`](/Users/linlay-macmini/Project/zenmind/zenmind/generated/docker-compose.env)
-- [`generated/docker-compose.override.yml`](/Users/linlay-macmini/Project/zenmind/zenmind/generated/docker-compose.override.yml)
-- [`generated/gateway/nginx.conf`](/Users/linlay-macmini/Project/zenmind/zenmind/generated/gateway/nginx.conf)
+- [`generated/docker-compose.override.yml`](/Users/linlay/Project/zenmind/zenmind/generated/docker-compose.override.yml)
+- [`generated/gateway/nginx.conf`](/Users/linlay/Project/zenmind/zenmind/generated/gateway/nginx.conf)
 
 这些文件不提交 Git。
