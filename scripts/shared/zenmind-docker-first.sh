@@ -6,11 +6,25 @@ readonly ZENMIND_PRODUCTS=(
   "zenmind-voice-server"
   "pan-webclient"
   "term-webclient"
-  "mini-app-server"
   "mcp-server-imagine"
-  "mcp-server-bash"
   "mcp-server-mock"
-  "mcp-server-email"
+  "agent-platform-runner"
+  "agent-container-hub"
+)
+
+readonly ZENMIND_IMAGE_PRODUCTS=(
+  "gateway"
+  "zenmind-app-server"
+  "zenmind-voice-server"
+  "pan-webclient"
+  "term-webclient"
+  "mcp-server-imagine"
+  "mcp-server-mock"
+  "agent-platform-runner"
+)
+
+readonly ZENMIND_HOST_PRODUCTS=(
+  "agent-container-hub"
 )
 
 readonly ZENMIND_COMPOSE_SERVICES=(
@@ -22,15 +36,33 @@ readonly ZENMIND_COMPOSE_SERVICES=(
   "pan-webclient-frontend"
   "term-webclient-backend"
   "term-webclient-frontend"
-  "mini-app-server"
   "mcp-server-imagine"
-  "mcp-server-bash"
   "mcp-server-mock"
-  "mcp-server-email"
+  "agent-platform-runner"
+)
+
+readonly ZENMIND_MAC_DOWNLOAD_REPOS=(
+  "zenmind-app-server|https://github.com/linlay/zenmind-app-server-go.git"
+  "zenmind-voice-server|https://github.com/linlay/zenmind-voice-server.git"
+  "zenmind-gateway|https://github.com/linlay/zenmind-gateway.git"
+  "agent-platform-runner|https://github.com/linlay/agent-platform-runner.git"
+  "agent-container-hub|https://github.com/linlay/agent-container-hub.git"
+  "pan-webclient|https://github.com/linlay/pan-webclient.git"
+  "term-webclient|https://github.com/linlay/term-webclient.git"
+  "mcp-server-mock|https://github.com/linlay/mcp-server-mock.git"
+  "mcp-server-imagine|https://github.com/linlay/mcp-server-imagine.git"
 )
 
 zenmind_usage() {
-  cat <<'USAGE'
+  local usage_download_menu=""
+  local usage_action_suffix=""
+
+  if [[ "${ZENMIND_OS:-}" == "mac" ]]; then
+    usage_download_menu=$'  6) 下载所有\n'
+    usage_action_suffix=" | download-all"
+  fi
+
+  cat <<USAGE
 Usage: ./setup-<os>.sh [--action ACTION] [options]
 
 Interactive menu (default):
@@ -39,10 +71,10 @@ Interactive menu (default):
   3) 启动
   4) 停止
   5) 查看
-  0) 退出
+${usage_download_menu}  0) 退出
 
 Options:
-  --action  check | configure | start | stop | view
+  --action  check | configure | start | stop | view${usage_action_suffix}
   --web          configure mode: open the local HTML config editor
   --cli          configure mode: run the interactive CLI wizard
   --sync-only    configure mode: regenerate derived files only
@@ -120,6 +152,108 @@ zenmind_startup_config_path() {
   printf '%s/config/startup-services.conf\n' "$SCRIPT_DIR"
 }
 
+zenmind_repo_root_path() {
+  printf '%s\n' "$(cd "${SCRIPT_DIR}/.." && pwd)"
+}
+
+zenmind_generated_run_dir() {
+  printf '%s/generated/run\n' "$SCRIPT_DIR"
+}
+
+zenmind_generated_logs_dir() {
+  printf '%s/generated/logs\n' "$SCRIPT_DIR"
+}
+
+zenmind_trim_line() {
+  local line="$1"
+  line="${line#"${line%%[![:space:]]*}"}"
+  line="${line%"${line##*[![:space:]]}"}"
+  printf '%s\n' "$line"
+}
+
+zenmind_strip_startup_comment() {
+  local line="$1"
+  line="${line%%#*}"
+  zenmind_trim_line "$line"
+}
+
+zenmind_read_startup_products() {
+  local startup_file line
+  startup_file="$(zenmind_startup_config_path)"
+  [[ -f "$startup_file" ]] || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(zenmind_strip_startup_comment "$line")"
+    [[ -z "$line" ]] && continue
+    printf '%s\n' "$line"
+  done <"$startup_file"
+}
+
+zenmind_product_runtime_type() {
+  case "$1" in
+    agent-container-hub) printf 'host' ;;
+    *) printf 'image' ;;
+  esac
+}
+
+zenmind_product_repo_name() {
+  case "$1" in
+    gateway) printf 'zenmind-gateway' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+zenmind_product_enabled_in_startup() {
+  local target="$1"
+  local product
+  while IFS= read -r product || [[ -n "$product" ]]; do
+    [[ "$product" == "$target" ]] && return 0
+  done < <(zenmind_read_startup_products)
+  return 1
+}
+
+zenmind_host_service_pid_file() {
+  printf '%s/%s.pid\n' "$(zenmind_generated_run_dir)" "$1"
+}
+
+zenmind_host_service_log_file() {
+  printf '%s/%s.log\n' "$(zenmind_generated_logs_dir)" "$1"
+}
+
+zenmind_host_service_repo_dir() {
+  printf '%s/%s\n' "$(zenmind_repo_root_path)" "$1"
+}
+
+zenmind_read_env_value() {
+  local env_file="$1"
+  local key="$2"
+  local value
+  [[ -f "$env_file" ]] || return 1
+  value="$(awk -F= -v k="$key" '$1==k { sub(/^[^=]*=/, "", $0); print $0; exit }' "$env_file")"
+  value="${value#\'}"
+  value="${value%\'}"
+  value="${value#\"}"
+  value="${value%\"}"
+  printf '%s\n' "$value"
+}
+
+zenmind_host_service_bind_addr() {
+  local product="$1"
+  local env_file value
+  env_file="$(zenmind_host_service_repo_dir "$product")/.env"
+  value="$(zenmind_read_env_value "$env_file" "BIND_ADDR" 2>/dev/null || true)"
+  if [[ -n "$value" ]]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  printf '127.0.0.1:11960\n'
+}
+
+zenmind_host_service_port() {
+  local bind_addr
+  bind_addr="$(zenmind_host_service_bind_addr "$1")"
+  printf '%s\n' "${bind_addr##*:}"
+}
+
 zenmind_ensure_profile() {
   if [[ ! -f "$(zenmind_profile_path)" ]]; then
     cp "${SCRIPT_DIR}/config/zenmind.profile.example.json" "$(zenmind_profile_path)"
@@ -148,46 +282,29 @@ zenmind_source_compose_env() {
 }
 
 zenmind_product_enabled() {
-  local target="$1"
-  local startup_file line
-  startup_file="$(zenmind_startup_config_path)"
-  [[ -f "$startup_file" ]] || return 1
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    line="${line#"${line%%[![:space:]]*}"}"
-    line="${line%"${line##*[![:space:]]}"}"
-    [[ -z "$line" || "$line" == \#* ]] && continue
-    if [[ "$line" == "$target" ]]; then
-      return 0
-    fi
-  done <"$startup_file"
-  return 1
+  zenmind_product_enabled_in_startup "$1"
 }
 
 zenmind_expand_products() {
-  local startup_file line
+  local line
   local services=()
-  startup_file="$(zenmind_startup_config_path)"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    line="${line#"${line%%[![:space:]]*}"}"
-    line="${line%"${line##*[![:space:]]}"}"
-    [[ -z "$line" || "$line" == \#* ]] && continue
     case "$line" in
       gateway) services+=("gateway") ;;
       zenmind-app-server) services+=("zenmind-app-server-backend" "zenmind-app-server-frontend") ;;
       zenmind-voice-server) services+=("zenmind-voice-server") ;;
       pan-webclient) services+=("pan-webclient-api" "pan-webclient-frontend") ;;
       term-webclient) services+=("term-webclient-backend" "term-webclient-frontend") ;;
-      mini-app-server) services+=("mini-app-server") ;;
       mcp-server-imagine) services+=("mcp-server-imagine") ;;
-      mcp-server-bash) services+=("mcp-server-bash") ;;
       mcp-server-mock) services+=("mcp-server-mock") ;;
-      mcp-server-email) services+=("mcp-server-email") ;;
+      agent-platform-runner) services+=("agent-platform-runner") ;;
+      agent-container-hub) ;;
       *)
         zenmind_summary_add_fail "unknown product in startup list: $line"
         return 1
         ;;
     esac
-  done <"$startup_file"
+  done < <(zenmind_read_startup_products)
   printf '%s\n' "${services[@]}"
 }
 
@@ -438,8 +555,99 @@ zenmind_check_gateway_health() {
   return 0
 }
 
+zenmind_start_host_service() {
+  local product="$1"
+  local repo_dir pid_file log_file env_file bind_addr port pid
+
+  repo_dir="$(zenmind_host_service_repo_dir "$product")"
+  pid_file="$(zenmind_host_service_pid_file "$product")"
+  log_file="$(zenmind_host_service_log_file "$product")"
+  env_file="${repo_dir}/.env"
+
+  if [[ ! -d "$repo_dir" ]]; then
+    zenmind_summary_add_fail "host service repo missing: ${repo_dir}"
+    return 1
+  fi
+  if ! setup_require_cmd go; then
+    zenmind_summary_add_fail "go is required for host service: ${product}"
+    return 1
+  fi
+
+  mkdir -p "$(zenmind_generated_run_dir)" "$(zenmind_generated_logs_dir)"
+  if setup_process_running_from_pid_file "$pid_file"; then
+    zenmind_summary_add_ok "host service already running: ${product}"
+    return 0
+  fi
+
+  (
+    cd "$repo_dir"
+    set -a
+    [[ -f "$env_file" ]] && source "$env_file"
+    set +a
+    nohup go run ./cmd/agent-container-hub >"$log_file" 2>&1 &
+    echo "$!" >"$pid_file"
+  )
+
+  sleep 2
+  if ! setup_process_running_from_pid_file "$pid_file"; then
+    zenmind_summary_add_fail "host service exited early: ${product}"
+    zenmind_summary_add_warn "check log file: ${log_file}"
+    return 1
+  fi
+
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+  bind_addr="$(zenmind_host_service_bind_addr "$product")"
+  port="$(zenmind_host_service_port "$product")"
+  zenmind_summary_add_ok "started host service: ${product} (PID ${pid:-unknown}, bind ${bind_addr})"
+  if curl -sS -o /dev/null -m 2 "http://127.0.0.1:${port}/api/sessions" 2>/dev/null; then
+    zenmind_summary_add_ok "host service reachable: ${product}"
+  else
+    zenmind_summary_add_warn "host service port not yet reachable: ${product}"
+  fi
+}
+
+zenmind_stop_host_service() {
+  local product="$1"
+  local pid_file
+  pid_file="$(zenmind_host_service_pid_file "$product")"
+  if setup_stop_process_by_pid_file "$pid_file"; then
+    zenmind_summary_add_ok "stopped host service: ${product}"
+    return 0
+  fi
+  zenmind_summary_add_warn "host service not running: ${product}"
+  return 0
+}
+
+zenmind_view_host_service() {
+  local product="$1"
+  local pid_file log_file bind_addr port pid
+  pid_file="$(zenmind_host_service_pid_file "$product")"
+  log_file="$(zenmind_host_service_log_file "$product")"
+  bind_addr="$(zenmind_host_service_bind_addr "$product")"
+  port="$(zenmind_host_service_port "$product")"
+
+  if setup_process_running_from_pid_file "$pid_file"; then
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    zenmind_summary_add_ok "host service running: ${product} (PID ${pid:-unknown}, bind ${bind_addr})"
+  else
+    zenmind_summary_add_warn "host service not running: ${product}"
+    return 0
+  fi
+
+  if curl -sS -o /dev/null -m 2 "http://127.0.0.1:${port}/api/sessions" 2>/dev/null; then
+    zenmind_summary_add_ok "host service reachable: ${product}"
+  else
+    zenmind_summary_add_warn "host service port not reachable: ${product}"
+  fi
+
+  if [[ -f "$log_file" ]]; then
+    zenmind_summary_add_ok "host service log file: ${log_file}"
+  fi
+}
+
 zenmind_run_start() {
   local services
+  local product
 
   if ! setup_prepare_docker_alias; then
     zenmind_summary_add_fail "docker is required for start"
@@ -456,6 +664,11 @@ zenmind_run_start() {
 
   zenmind_apply_config || return 1
   zenmind_validate_remote_image_config || return 1
+  for product in "${ZENMIND_HOST_PRODUCTS[@]}"; do
+    if zenmind_product_enabled "$product"; then
+      zenmind_start_host_service "$product" || return 1
+    fi
+  done
   mapfile -t services < <(zenmind_expand_products) || return 1
   zenmind_prepare_remote_images "${services[@]}" || return 1
 
@@ -472,6 +685,7 @@ zenmind_run_start() {
 
 zenmind_run_stop() {
   local services
+  local product
 
   if ! setup_prepare_docker_alias; then
     zenmind_summary_add_fail "docker is required for stop"
@@ -485,6 +699,12 @@ zenmind_run_stop() {
     zenmind_summary_add_fail "docker compose stop failed"
     return 1
   fi
+
+  for product in "${ZENMIND_HOST_PRODUCTS[@]}"; do
+    if zenmind_product_enabled "$product"; then
+      zenmind_stop_host_service "$product" || return 1
+    fi
+  done
 }
 
 zenmind_expand_log_targets() {
@@ -514,7 +734,7 @@ zenmind_expand_log_targets() {
       printf '%s\n' "term-webclient-backend" "term-webclient-frontend"
       return 0
       ;;
-    mini-app-server|mcp-server-imagine|mcp-server-bash|mcp-server-mock|mcp-server-email)
+    mcp-server-imagine|mcp-server-mock|agent-platform-runner)
       printf '%s\n' "$target"
       return 0
       ;;
@@ -528,10 +748,34 @@ zenmind_expand_log_targets() {
   return 1
 }
 
+zenmind_run_host_logs() {
+  local target="$1"
+  local tail_count="${VIEW_TAIL:-100}"
+  local log_file
+  log_file="$(zenmind_host_service_log_file "$target")"
+
+  if [[ ! -f "$log_file" ]]; then
+    zenmind_summary_add_fail "host log file missing: $log_file"
+    return 1
+  fi
+
+  if [[ "${VIEW_FOLLOW:-0}" == "1" ]]; then
+    tail -n "$tail_count" -f "$log_file"
+  else
+    tail -n "$tail_count" "$log_file"
+  fi
+  zenmind_summary_add_ok "showed host logs for: $target"
+}
+
 zenmind_run_logs() {
   local targets
   local tail_count="${VIEW_TAIL:-100}"
   local -a cmd_args=("logs" "--tail" "$tail_count")
+
+  if [[ "$VIEW_LOG_TARGET" == "agent-container-hub" ]]; then
+    zenmind_run_host_logs "$VIEW_LOG_TARGET"
+    return $?
+  fi
 
   if [[ "${VIEW_FOLLOW:-0}" == "1" ]]; then
     cmd_args+=("-f")
@@ -557,6 +801,12 @@ zenmind_run_view() {
   zenmind_apply_config || return 1
 
   zenmind_compose_cmd ps || zenmind_summary_add_warn "docker compose ps returned a non-zero exit code"
+  local product
+  for product in "${ZENMIND_HOST_PRODUCTS[@]}"; do
+    if zenmind_product_enabled "$product"; then
+      zenmind_view_host_service "$product"
+    fi
+  done
   zenmind_check_gateway_health
   zenmind_check_cloudflare_status
 
@@ -565,14 +815,90 @@ zenmind_run_view() {
   fi
 }
 
+zenmind_download_repo() {
+  local repo_name="$1"
+  local repo_url="$2"
+  local repo_root repo_dir status_output
+
+  repo_root="$(zenmind_repo_root_path)"
+  repo_dir="${repo_root}/${repo_name}"
+
+  if [[ ! -e "$repo_dir" ]]; then
+    setup_log "cloning ${repo_url} -> ${repo_dir}"
+    if git clone "$repo_url" "$repo_dir"; then
+      zenmind_summary_add_ok "cloned repo: ${repo_name}"
+      return 0
+    fi
+    zenmind_summary_add_fail "failed to clone repo: ${repo_name}"
+    return 1
+  fi
+
+  if ! git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    zenmind_summary_add_warn "skip existing non-git directory: ${repo_dir}"
+    return 0
+  fi
+
+  status_output="$(git -C "$repo_dir" status --porcelain 2>/dev/null || true)"
+  if [[ -n "$status_output" ]]; then
+    zenmind_summary_add_warn "skip dirty repo: ${repo_name}"
+    return 0
+  fi
+
+  setup_log "pulling repo: ${repo_name}"
+  if git -C "$repo_dir" pull --ff-only; then
+    zenmind_summary_add_ok "updated repo: ${repo_name}"
+    return 0
+  fi
+
+  zenmind_summary_add_fail "failed to update repo: ${repo_name}"
+  return 1
+}
+
+zenmind_run_download_all() {
+  local entry repo_name repo_url
+  local failed=0
+
+  if [[ "${ZENMIND_OS}" != "mac" ]]; then
+    zenmind_summary_add_fail "download-all is only supported on macOS"
+    return 1
+  fi
+
+  if ! setup_require_cmd git; then
+    zenmind_summary_add_fail "git is required for download-all"
+    return 1
+  fi
+  zenmind_summary_add_ok "git available"
+  zenmind_summary_add_ok "repo root: $(zenmind_repo_root_path)"
+
+  for entry in "${ZENMIND_MAC_DOWNLOAD_REPOS[@]}"; do
+    repo_name="${entry%%|*}"
+    repo_url="${entry#*|}"
+    if ! zenmind_download_repo "$repo_name" "$repo_url"; then
+      failed=1
+    fi
+  done
+
+  if [[ "$failed" == "0" ]]; then
+    zenmind_summary_add_ok "download-all completed"
+    return 0
+  fi
+  return 1
+}
+
 zenmind_menu() {
-  cat <<'MENU'
+  local menu_download_line=""
+
+  if [[ "${ZENMIND_OS:-}" == "mac" ]]; then
+    menu_download_line=$'6) 下载所有\n'
+  fi
+
+  cat <<MENU
 1) 环境检测
 2) 配置
 3) 启动
 4) 停止
 5) 查看
-0) 退出
+${menu_download_line}0) 退出
 MENU
 }
 
@@ -659,6 +985,7 @@ zenmind_dispatch() {
     start) zenmind_run_start ;;
     stop) zenmind_run_stop ;;
     view) zenmind_run_view ;;
+    download-all) zenmind_run_download_all ;;
     *)
       zenmind_summary_add_fail "unsupported action: $ACTION"
       return 1
@@ -678,6 +1005,14 @@ zenmind_interactive_loop() {
       3) ACTION="start" ;;
       4) ACTION="stop" ;;
       5) ACTION="view" ;;
+      6)
+        if [[ "${ZENMIND_OS}" == "mac" ]]; then
+          ACTION="download-all"
+        else
+          setup_warn "unknown choice: $choice"
+          continue
+        fi
+        ;;
       0) exit 0 ;;
       *) setup_warn "unknown choice: $choice"; continue ;;
     esac

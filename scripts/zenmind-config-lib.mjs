@@ -9,11 +9,10 @@ export const MANAGED_PRODUCTS = [
   "zenmind-voice-server",
   "pan-webclient",
   "term-webclient",
-  "mini-app-server",
   "mcp-server-imagine",
-  "mcp-server-bash",
   "mcp-server-mock",
-  "mcp-server-email"
+  "agent-platform-runner",
+  "agent-container-hub"
 ];
 
 export const SERVICE_EXPANSIONS = {
@@ -22,11 +21,22 @@ export const SERVICE_EXPANSIONS = {
   "zenmind-voice-server": ["zenmind-voice-server"],
   "pan-webclient": ["pan-webclient-api", "pan-webclient-frontend"],
   "term-webclient": ["term-webclient-backend", "term-webclient-frontend"],
-  "mini-app-server": ["mini-app-server"],
   "mcp-server-imagine": ["mcp-server-imagine"],
-  "mcp-server-bash": ["mcp-server-bash"],
   "mcp-server-mock": ["mcp-server-mock"],
-  "mcp-server-email": ["mcp-server-email"]
+  "agent-platform-runner": ["agent-platform-runner"],
+  "agent-container-hub": []
+};
+
+export const PRODUCT_RUNTIME_TYPES = {
+  gateway: "image",
+  "zenmind-app-server": "image",
+  "zenmind-voice-server": "image",
+  "pan-webclient": "image",
+  "term-webclient": "image",
+  "mcp-server-imagine": "image",
+  "mcp-server-mock": "image",
+  "agent-platform-runner": "image",
+  "agent-container-hub": "host"
 };
 
 const DEFAULT_PROFILE = {
@@ -45,7 +55,14 @@ const DEFAULT_PROFILE = {
     listenPort: 11945
   },
   agentPlatformRunner: {
-    baseUrl: "http://host.docker.internal:11949"
+    enabled: true,
+    hostPort: 11949,
+    baseUrl: "http://127.0.0.1:11949"
+  },
+  containerHub: {
+    enabled: false,
+    port: 11960,
+    authToken: ""
   },
   admin: {
     enabled: true,
@@ -66,15 +83,6 @@ const DEFAULT_PROFILE = {
     webEnabled: true,
     frontendPort: 11947,
     webPasswordBcrypt: ""
-  },
-  miniApp: {
-    enabled: true,
-    defaultAppMode: "dev",
-    publicBase: "/ma",
-    port: 11948
-  },
-  sandboxes: {
-    enabled: false
   },
   mcp: {
     enabled: true
@@ -109,7 +117,14 @@ const INTERNAL_DEFAULTS = {
     termAppEnabled: true
   },
   agentPlatformRunner: {
-    baseUrl: "http://host.docker.internal:11949"
+    enabled: true,
+    hostPort: 11949,
+    baseUrl: "http://127.0.0.1:11949"
+  },
+  containerHub: {
+    enabled: false,
+    port: 11960,
+    authToken: ""
   },
   services: {
     zenmindAppServer: {
@@ -163,14 +178,6 @@ const INTERNAL_DEFAULTS = {
       assistApiKey: "",
       mounts: []
     },
-    miniAppServer: {
-      enabled: true,
-      port: 11948,
-      defaultAppMode: "dev",
-      platformBase: "/__platform",
-      publicBase: "/ma",
-      host: "0.0.0.0"
-    },
     mcpServerImagine: {
       enabled: true,
       hostPortEnabled: true,
@@ -179,27 +186,45 @@ const INTERNAL_DEFAULTS = {
       runnerDataRoot: "../mcp-server-imagine/data",
       providerConfigs: []
     },
-    mcpServerBash: {
-      enabled: true,
-      hostPortEnabled: true,
-      hostPort: 11963,
-      serverPort: 8080,
-      workingDirectory: ".",
-      allowedPaths: ".,/tmp",
-      allowedCommands: "ls,pwd,cat,head,tail,top,free,df,git,rg,find"
-    },
     mcpServerMock: {
       enabled: true,
       hostPortEnabled: true,
       hostPort: 11969,
       serverPort: 8080
     },
-    mcpServerEmail: {
+    agentPlatformRunner: {
       enabled: true,
-      hostPortEnabled: true,
-      hostPort: 11967,
-      serverPort: 8080,
-      accounts: []
+      hostPort: 11949,
+      baseUrl: "http://agent-platform-runner:8080",
+      publicBaseUrl: "http://127.0.0.1:11949",
+      authEnabled: true,
+      chatImageTokenSecret: "",
+      runtimeRoot: "../.zenmind",
+      dirs: {
+        agents: "../.zenmind/agents",
+        teams: "../.zenmind/teams",
+        models: "../.zenmind/models",
+        providers: "../.zenmind/providers",
+        tools: "../.zenmind/tools",
+        mcpServers: "../.zenmind/mcp-servers",
+        viewportServers: "../.zenmind/viewport-servers",
+        viewports: "../.zenmind/viewports",
+        skillsMarket: "../.zenmind/skills-market",
+        schedules: "../.zenmind/schedules",
+        chats: "../.zenmind/chats",
+        root: "../.zenmind/root",
+        pan: "../.zenmind/pan"
+      }
+    },
+    containerHub: {
+      enabled: false,
+      port: 11960,
+      authToken: "",
+      bindAddr: "127.0.0.1:11960",
+      configRoot: "./configs",
+      rootfsRoot: "./data/rootfs",
+      buildRoot: "./data/builds",
+      sessionMountTemplateRoot: ""
     }
   }
 };
@@ -261,6 +286,32 @@ function deriveOrigin(domain) {
   return `https://${domain}`;
 }
 
+function derivePublicRunnerBaseUrl(hostPort) {
+  return `http://127.0.0.1:${hostPort}`;
+}
+
+function deriveContainerRunnerBaseUrl() {
+  return "http://agent-platform-runner:8080";
+}
+
+function parsePortFromUrl(value, fallbackPort) {
+  try {
+    const parsed = new URL(String(value || ""));
+    if (parsed.port) {
+      return Number.parseInt(parsed.port, 10);
+    }
+    if (parsed.protocol === "https:") {
+      return 443;
+    }
+    if (parsed.protocol === "http:") {
+      return 80;
+    }
+  } catch {
+    return fallbackPort;
+  }
+  return fallbackPort;
+}
+
 function getBcryptValue(secret) {
   if (typeof secret === "string") {
     return normalizeBcrypt(secret);
@@ -303,6 +354,9 @@ function ensurePort(value, label) {
 
 function normalizeProfile(rawProfile) {
   if (rawProfile?.profileVersion === 2) {
+    const runnerHostPort = rawProfile?.agentPlatformRunner?.hostPort
+      ?? parsePortFromUrl(rawProfile?.agentPlatformRunner?.baseUrl, DEFAULT_PROFILE.agentPlatformRunner.hostPort);
+    const containerHubPort = rawProfile?.containerHub?.port ?? DEFAULT_PROFILE.containerHub.port;
     return {
       profileVersion: 2,
       website: {
@@ -319,7 +373,14 @@ function normalizeProfile(rawProfile) {
         listenPort: rawProfile?.gateway?.listenPort ?? DEFAULT_PROFILE.gateway.listenPort
       },
       agentPlatformRunner: {
-        baseUrl: String(rawProfile?.agentPlatformRunner?.baseUrl || DEFAULT_PROFILE.agentPlatformRunner.baseUrl)
+        enabled: Boolean(rawProfile?.agentPlatformRunner?.enabled ?? DEFAULT_PROFILE.agentPlatformRunner.enabled),
+        hostPort: runnerHostPort,
+        baseUrl: String(rawProfile?.agentPlatformRunner?.baseUrl || derivePublicRunnerBaseUrl(runnerHostPort))
+      },
+      containerHub: {
+        enabled: Boolean(rawProfile?.containerHub?.enabled ?? rawProfile?.sandboxes?.enabled ?? DEFAULT_PROFILE.containerHub.enabled),
+        port: containerHubPort,
+        authToken: String(rawProfile?.containerHub?.authToken || DEFAULT_PROFILE.containerHub.authToken)
       },
       admin: {
         enabled: Boolean(rawProfile?.admin?.enabled ?? DEFAULT_PROFILE.admin.enabled),
@@ -341,15 +402,6 @@ function normalizeProfile(rawProfile) {
         frontendPort: rawProfile?.term?.frontendPort ?? DEFAULT_PROFILE.term.frontendPort,
         webPasswordBcrypt: getBcryptValue(rawProfile?.term?.webPasswordBcrypt || rawProfile?.term?.webPassword)
       },
-      miniApp: {
-        enabled: Boolean(rawProfile?.miniApp?.enabled ?? DEFAULT_PROFILE.miniApp.enabled),
-        defaultAppMode: String(rawProfile?.miniApp?.defaultAppMode || DEFAULT_PROFILE.miniApp.defaultAppMode),
-        publicBase: String(rawProfile?.miniApp?.publicBase || DEFAULT_PROFILE.miniApp.publicBase),
-        port: rawProfile?.miniApp?.port ?? DEFAULT_PROFILE.miniApp.port
-      },
-      sandboxes: {
-        enabled: Boolean(rawProfile?.sandboxes?.enabled ?? DEFAULT_PROFILE.sandboxes.enabled)
-      },
       mcp: {
         enabled: Boolean(rawProfile?.mcp?.enabled ?? DEFAULT_PROFILE.mcp.enabled)
       },
@@ -365,6 +417,8 @@ function normalizeProfile(rawProfile) {
   const websiteDomain = normalizeDomain(
     rawProfile?.website?.domain || rawProfile?.website?.publicOrigin || rawProfile?.cloudflared?.hostname || DEFAULT_PROFILE.website.domain
   );
+  const runnerHostPort = rawProfile?.agentPlatformRunner?.hostPort
+    ?? parsePortFromUrl(rawProfile?.agentPlatformRunner?.baseUrl || rawProfile?.services?.voiceServer?.runnerBaseUrl, DEFAULT_PROFILE.agentPlatformRunner.hostPort);
   const legacyMcpEnabled = [
     rawProfile?.services?.mcpServerImagine?.enabled,
     rawProfile?.services?.mcpServerBash?.enabled,
@@ -388,7 +442,18 @@ function normalizeProfile(rawProfile) {
       listenPort: rawProfile?.gateway?.listenPort ?? DEFAULT_PROFILE.gateway.listenPort
     },
     agentPlatformRunner: {
-      baseUrl: String(rawProfile?.agentPlatformRunner?.baseUrl || rawProfile?.services?.voiceServer?.runnerBaseUrl || DEFAULT_PROFILE.agentPlatformRunner.baseUrl)
+      enabled: Boolean(rawProfile?.agentPlatformRunner?.enabled ?? true),
+      hostPort: runnerHostPort,
+      baseUrl: String(
+        rawProfile?.agentPlatformRunner?.baseUrl
+        || rawProfile?.services?.voiceServer?.runnerBaseUrl
+        || derivePublicRunnerBaseUrl(runnerHostPort)
+      )
+    },
+    containerHub: {
+      enabled: Boolean(rawProfile?.containerHub?.enabled ?? rawProfile?.sandboxes?.enabled ?? DEFAULT_PROFILE.containerHub.enabled),
+      port: rawProfile?.containerHub?.port ?? DEFAULT_PROFILE.containerHub.port,
+      authToken: String(rawProfile?.containerHub?.authToken || DEFAULT_PROFILE.containerHub.authToken)
     },
     admin: {
       enabled: Boolean(rawProfile?.services?.zenmindAppServer?.enabled ?? DEFAULT_PROFILE.admin.enabled),
@@ -409,15 +474,6 @@ function normalizeProfile(rawProfile) {
       webEnabled: Boolean(rawProfile?.access?.termWebEnabled ?? DEFAULT_PROFILE.term.webEnabled),
       frontendPort: rawProfile?.services?.termWebclient?.frontendPort ?? DEFAULT_PROFILE.term.frontendPort,
       webPasswordBcrypt: getBcryptValue(rawProfile?.services?.termWebclient?.webPassword)
-    },
-    miniApp: {
-      enabled: Boolean(rawProfile?.services?.miniAppServer?.enabled ?? DEFAULT_PROFILE.miniApp.enabled),
-      defaultAppMode: String(rawProfile?.services?.miniAppServer?.defaultAppMode || DEFAULT_PROFILE.miniApp.defaultAppMode),
-      publicBase: String(rawProfile?.services?.miniAppServer?.publicBase || DEFAULT_PROFILE.miniApp.publicBase),
-      port: rawProfile?.services?.miniAppServer?.port ?? DEFAULT_PROFILE.miniApp.port
-    },
-    sandboxes: {
-      enabled: Boolean(rawProfile?.sandboxes?.enabled ?? DEFAULT_PROFILE.sandboxes.enabled)
     },
     mcp: {
       enabled: legacyMcpEnabled || rawProfile?.mcp?.enabled === true || (
@@ -455,7 +511,14 @@ function serializeProfile(profile) {
       listenPort: normalized.gateway.listenPort
     },
     agentPlatformRunner: {
-      baseUrl: normalized.agentPlatformRunner.baseUrl
+      enabled: normalized.agentPlatformRunner.enabled,
+      hostPort: normalized.agentPlatformRunner.hostPort,
+      baseUrl: derivePublicRunnerBaseUrl(normalized.agentPlatformRunner.hostPort)
+    },
+    containerHub: {
+      enabled: normalized.containerHub.enabled,
+      port: normalized.containerHub.port,
+      authToken: normalized.containerHub.authToken
     },
     admin: {
       enabled: normalized.admin.enabled,
@@ -476,15 +539,6 @@ function serializeProfile(profile) {
       webEnabled: normalized.term.webEnabled,
       frontendPort: normalized.term.frontendPort,
       webPasswordBcrypt: normalized.term.webPasswordBcrypt
-    },
-    miniApp: {
-      enabled: normalized.miniApp.enabled,
-      defaultAppMode: normalized.miniApp.defaultAppMode,
-      publicBase: normalized.miniApp.publicBase,
-      port: normalized.miniApp.port
-    },
-    sandboxes: {
-      enabled: normalized.sandboxes.enabled
     },
     mcp: {
       enabled: normalized.mcp.enabled
@@ -530,7 +584,24 @@ function expandProfile(profile, reposRoot) {
   detailed.gateway.listenPort = normalized.gateway.listenPort;
   detailed.cloudflared.hostname = normalized.website.domain;
   detailed.cloudflared.tunnelUuid = normalized.cloudflared.tunnelUuid;
-  detailed.agentPlatformRunner.baseUrl = normalized.agentPlatformRunner.baseUrl;
+  detailed.agentPlatformRunner.enabled = normalized.agentPlatformRunner.enabled;
+  detailed.agentPlatformRunner.hostPort = normalized.agentPlatformRunner.hostPort;
+  detailed.agentPlatformRunner.publicBaseUrl = derivePublicRunnerBaseUrl(normalized.agentPlatformRunner.hostPort);
+  detailed.agentPlatformRunner.baseUrl = normalized.agentPlatformRunner.enabled
+    ? deriveContainerRunnerBaseUrl()
+    : detailed.agentPlatformRunner.publicBaseUrl;
+  detailed.containerHub.enabled = normalized.containerHub.enabled;
+  detailed.containerHub.port = normalized.containerHub.port;
+  detailed.containerHub.authToken = normalized.containerHub.authToken;
+  detailed.containerHub.bindAddr = `127.0.0.1:${normalized.containerHub.port}`;
+  detailed.services.agentPlatformRunner.enabled = normalized.agentPlatformRunner.enabled;
+  detailed.services.agentPlatformRunner.hostPort = normalized.agentPlatformRunner.hostPort;
+  detailed.services.agentPlatformRunner.baseUrl = detailed.agentPlatformRunner.baseUrl;
+  detailed.services.agentPlatformRunner.publicBaseUrl = detailed.agentPlatformRunner.publicBaseUrl;
+  detailed.services.containerHub.enabled = normalized.containerHub.enabled;
+  detailed.services.containerHub.port = normalized.containerHub.port;
+  detailed.services.containerHub.authToken = normalized.containerHub.authToken;
+  detailed.services.containerHub.bindAddr = detailed.containerHub.bindAddr;
 
   detailed.access.adminPublicEnabled = normalized.admin.enabled ? normalized.admin.webEnabled : false;
   detailed.access.panWebEnabled = normalized.pan.enabled ? normalized.pan.webEnabled : false;
@@ -544,7 +615,7 @@ function expandProfile(profile, reposRoot) {
   detailed.services.zenmindAppServer.adminPassword = normalized.admin.webPasswordBcrypt || legacySecrets.adminWebPassword || "";
   detailed.services.zenmindAppServer.appMasterPassword = normalized.admin.appMasterPasswordBcrypt || legacySecrets.adminAppMasterPassword || "";
 
-  detailed.services.voiceServer.runnerBaseUrl = normalized.agentPlatformRunner.baseUrl;
+  detailed.services.voiceServer.runnerBaseUrl = detailed.agentPlatformRunner.baseUrl;
 
   detailed.services.panWebclient.enabled = normalized.pan.enabled;
   detailed.services.panWebclient.frontendPort = normalized.pan.frontendPort;
@@ -558,24 +629,21 @@ function expandProfile(profile, reposRoot) {
   detailed.services.termWebclient.webPassword = normalized.term.webPasswordBcrypt || legacySecrets.termWebPassword || "";
   detailed.services.termWebclient.appAuthIssuer = websiteOrigin;
   detailed.services.termWebclient.jwtPublicKeyPem = managedPublicKey;
+  detailed.services.termWebclient.copilotRunnerBaseUrl = detailed.agentPlatformRunner.baseUrl;
   detailed.services.termWebclient.mounts = [];
   detailed.services.termWebclient.agentsYaml = "";
   detailed.services.termWebclient.assistYaml = "";
   detailed.services.termWebclient.assistApiKey = "";
 
-  detailed.services.miniAppServer.enabled = normalized.miniApp.enabled;
-  detailed.services.miniAppServer.defaultAppMode = normalized.miniApp.defaultAppMode;
-  detailed.services.miniAppServer.publicBase = normalized.miniApp.publicBase;
-  detailed.services.miniAppServer.port = normalized.miniApp.port;
-
-  for (const serviceKey of ["mcpServerImagine", "mcpServerBash", "mcpServerMock", "mcpServerEmail"]) {
+  for (const serviceKey of ["mcpServerImagine", "mcpServerMock"]) {
     detailed.services[serviceKey].enabled = normalized.mcp.enabled;
     detailed.services[serviceKey].hostPortEnabled = normalized.mcp.enabled && detailed.services[serviceKey].hostPortEnabled;
   }
 
   detailed.__groups = {
     mcpEnabled: normalized.mcp.enabled,
-    sandboxesEnabled: normalized.sandboxes.enabled
+    containerHubEnabled: normalized.containerHub.enabled,
+    runnerEnabled: normalized.agentPlatformRunner.enabled
   };
 
   return detailed;
@@ -599,10 +667,11 @@ export function validateProfile(profile) {
   assert(typeof normalized.images?.tag === "string" && normalized.images.tag.trim(), "images.tag is required");
   assert(typeof normalized.agentPlatformRunner?.baseUrl === "string" && normalized.agentPlatformRunner.baseUrl.trim(), "agentPlatformRunner.baseUrl is required");
   ensurePort(normalized.gateway.listenPort, "gateway.listenPort");
+  ensurePort(normalized.agentPlatformRunner.hostPort, "agentPlatformRunner.hostPort");
+  ensurePort(normalized.containerHub.port, "containerHub.port");
   ensurePort(normalized.admin.frontendPort, "admin.frontendPort");
   ensurePort(normalized.pan.frontendPort, "pan.frontendPort");
   ensurePort(normalized.term.frontendPort, "term.frontendPort");
-  ensurePort(normalized.miniApp.port, "miniApp.port");
 }
 
 function normalizeMultiline(value) {
@@ -661,16 +730,14 @@ function serviceEnabled(profile, product) {
       return profile.services.panWebclient.enabled;
     case "term-webclient":
       return profile.services.termWebclient.enabled;
-    case "mini-app-server":
-      return profile.services.miniAppServer.enabled;
     case "mcp-server-imagine":
       return profile.services.mcpServerImagine.enabled;
-    case "mcp-server-bash":
-      return profile.services.mcpServerBash.enabled;
     case "mcp-server-mock":
       return profile.services.mcpServerMock.enabled;
-    case "mcp-server-email":
-      return profile.services.mcpServerEmail.enabled;
+    case "agent-platform-runner":
+      return profile.services.agentPlatformRunner.enabled;
+    case "agent-container-hub":
+      return profile.services.containerHub.enabled;
     default:
       return false;
   }
@@ -693,10 +760,11 @@ function renderComposeEnv(profile) {
     `VOICE_SERVER_PORT=${profile.services.voiceServer.port}`,
     `PAN_FRONTEND_PORT=${profile.services.panWebclient.frontendPort}`,
     `TERM_FRONTEND_PORT=${profile.services.termWebclient.frontendPort}`,
-    `MINI_APP_PORT=${profile.services.miniAppServer.port}`,
+    `AGENT_PLATFORM_RUNNER_ENABLED=${profile.services.agentPlatformRunner.enabled ? "true" : "false"}`,
+    `AGENT_PLATFORM_RUNNER_HOST_PORT=${profile.services.agentPlatformRunner.hostPort}`,
+    `CONTAINER_HUB_ENABLED=${profile.services.containerHub.enabled ? "true" : "false"}`,
+    `CONTAINER_HUB_PORT=${profile.services.containerHub.port}`,
     `MCP_IMAGINE_HOST_PORT=${profile.services.mcpServerImagine.hostPort}`,
-    `MCP_BASH_HOST_PORT=${profile.services.mcpServerBash.hostPort}`,
-    `MCP_EMAIL_HOST_PORT=${profile.services.mcpServerEmail.hostPort}`,
     `MCP_MOCK_HOST_PORT=${profile.services.mcpServerMock.hostPort}`,
     `APP_SERVER_VITE_BASE_PATH=${profile.services.zenmindAppServer.viteBasePath}`,
     `MCP_IMAGINE_RUNNER_DATA_ROOT=${profile.services.mcpServerImagine.runnerDataRoot}`,
@@ -707,11 +775,9 @@ function renderComposeEnv(profile) {
     `PAN_WEBCLIENT_FRONTEND_IMAGE=${quoteEnv(imageRefs["pan-webclient-frontend"])}`,
     `TERM_WEBCLIENT_BACKEND_IMAGE=${quoteEnv(imageRefs["term-webclient-backend"])}`,
     `TERM_WEBCLIENT_FRONTEND_IMAGE=${quoteEnv(imageRefs["term-webclient-frontend"])}`,
-    `MINI_APP_SERVER_IMAGE=${quoteEnv(imageRefs["mini-app-server"])}`,
+    `AGENT_PLATFORM_RUNNER_IMAGE=${quoteEnv(imageRefs["agent-platform-runner"])}`,
     `MCP_SERVER_IMAGINE_IMAGE=${quoteEnv(imageRefs["mcp-server-imagine"])}`,
-    `MCP_SERVER_BASH_IMAGE=${quoteEnv(imageRefs["mcp-server-bash"])}`,
-    `MCP_SERVER_MOCK_IMAGE=${quoteEnv(imageRefs["mcp-server-mock"])}`,
-    `MCP_SERVER_EMAIL_IMAGE=${quoteEnv(imageRefs["mcp-server-email"])}`
+    `MCP_SERVER_MOCK_IMAGE=${quoteEnv(imageRefs["mcp-server-mock"])}`
   ]);
 }
 
@@ -726,11 +792,9 @@ function buildManagedImageRefs(profile) {
     "pan-webclient-frontend": `${registry}/pan-webclient-frontend:${tag}`,
     "term-webclient-backend": `${registry}/term-webclient-backend:${tag}`,
     "term-webclient-frontend": `${registry}/term-webclient-frontend:${tag}`,
-    "mini-app-server": `${registry}/mini-app-server:${tag}`,
+    "agent-platform-runner": `${registry}/agent-platform-runner:${tag}`,
     "mcp-server-imagine": `${registry}/mcp-server-imagine:${tag}`,
-    "mcp-server-bash": `${registry}/mcp-server-bash:${tag}`,
-    "mcp-server-mock": `${registry}/mcp-server-mock:${tag}`,
-    "mcp-server-email": `${registry}/mcp-server-email:${tag}`
+    "mcp-server-mock": `${registry}/mcp-server-mock:${tag}`
   };
 }
 
@@ -747,20 +811,33 @@ function renderComposeOverride(profile) {
   };
 
   addPortBlock("mcp-server-imagine", "MCP_IMAGINE_HOST_PORT", profile.services.mcpServerImagine.hostPortEnabled);
-  addPortBlock("mcp-server-bash", "MCP_BASH_HOST_PORT", profile.services.mcpServerBash.hostPortEnabled);
-  addPortBlock("mcp-server-email", "MCP_EMAIL_HOST_PORT", profile.services.mcpServerEmail.hostPortEnabled);
   addPortBlock("mcp-server-mock", "MCP_MOCK_HOST_PORT", profile.services.mcpServerMock.hostPortEnabled);
   return `${lines.join("\n")}\n`;
 }
 
 function renderStartupConfig(profile) {
   const enabled = FIXED_STARTUP_PRODUCTS.filter((product) => serviceEnabled(profile, product));
-  return `${commentHeader("One product per line. Order defines startup sequence.")}${enabled.join("\n")}\n`;
+  const lines = enabled.map((product) => `${product}  # runtime=${PRODUCT_RUNTIME_TYPES[product] || "image"}`);
+  return `${commentHeader("One product per line. Order defines startup sequence.")}${lines.join("\n")}\n`;
 }
 
 function renderGatewayNginx(profile) {
-  const runnerBase = new URL(profile.agentPlatformRunner.baseUrl);
-  const runnerBackend = `${runnerBase.hostname}:${runnerBase.port || (runnerBase.protocol === "https:" ? 443 : 80)}`;
+  const runnerRoute = profile.__groups?.runnerEnabled
+    ? [
+        "        location ^~ /api/ap/ {",
+        "            proxy_buffering off;",
+        "            proxy_cache off;",
+        "            proxy_read_timeout 3600s;",
+        "            proxy_send_timeout 3600s;",
+        "            add_header X-Accel-Buffering no;",
+        "            proxy_pass http://agent_platform_runner;",
+        "        }"
+      ]
+    : [
+        "        location ^~ /api/ap/ {",
+        "            return 404;",
+        "        }"
+      ];
   const adminGate = profile.access.adminPublicEnabled
     ? [
         "        location ^~ /admin/api {",
@@ -819,14 +896,10 @@ function renderGatewayNginx(profile) {
   const mcpRoutes = profile.__groups?.mcpEnabled
     ? [
         "        location = /api/mcp/mock { proxy_pass http://mcp_server_mock/mcp; }",
-        "        location = /api/mcp/email { proxy_pass http://mcp_server_email/mcp; }",
-        "        location = /api/mcp/bash { proxy_pass http://mcp_server_bash/mcp; }",
         "        location = /api/mcp/imagine { proxy_pass http://mcp_server_imagine/mcp; }"
       ]
     : [
         "        location = /api/mcp/mock { return 404; }",
-        "        location = /api/mcp/email { return 404; }",
-        "        location = /api/mcp/bash { return 404; }",
         "        location = /api/mcp/imagine { return 404; }"
       ];
 
@@ -861,11 +934,8 @@ function renderGatewayNginx(profile) {
     "    upstream zenmind_voice_server { server zenmind-voice-server:11953; }",
     "    upstream pan_webclient_frontend { server pan-webclient-frontend:80; }",
     "    upstream term_webclient_frontend { server term-webclient-frontend:11947; }",
-    "    upstream mini_app_server { server mini-app-server:11948; }",
-    "    upstream agent_platform_runner { server " + runnerBackend + "; }",
+    "    upstream agent_platform_runner { server agent-platform-runner:8080; }",
     "    upstream mcp_server_mock { server mcp-server-mock:8080; }",
-    "    upstream mcp_server_email { server mcp-server-email:8080; }",
-    "    upstream mcp_server_bash { server mcp-server-bash:8080; }",
     "    upstream mcp_server_imagine { server mcp-server-imagine:8080; }",
     "",
     "    server {",
@@ -893,14 +963,7 @@ function renderGatewayNginx(profile) {
     ...adminGate,
     "",
     "        location ^~ /api/voice/ { proxy_pass http://zenmind_voice_server; }",
-    "        location ^~ /api/ap/ {",
-    "            proxy_buffering off;",
-    "            proxy_cache off;",
-    "            proxy_read_timeout 3600s;",
-    "            proxy_send_timeout 3600s;",
-    "            add_header X-Accel-Buffering no;",
-    "            proxy_pass http://agent_platform_runner;",
-    "        }",
+    ...runnerRoute,
     "",
     ...mcpRoutes,
     "",
@@ -909,17 +972,8 @@ function renderGatewayNginx(profile) {
     ...termWebGate,
     ...termAppGate,
     "",
-    "        location ^~ /ma/ {",
-    "            proxy_set_header X-Forwarded-Prefix /ma;",
-    "            rewrite ^/ma/(.*)$ /$1 break;",
-    "            proxy_redirect ~^(/.*)$ /ma$1;",
-    "            proxy_pass http://mini_app_server;",
-    "        }",
-    "",
-    "        location = /ma { return 301 /ma/; }",
-    "",
     "        location / {",
-    "            return 404;",
+      "            return 404;",
     "        }",
     "    }",
     "}"
@@ -996,18 +1050,6 @@ function renderTermEnv(profile, bcryptScriptPath) {
   ]);
 }
 
-function renderMiniAppEnv(profile) {
-  const service = profile.services.miniAppServer;
-  return renderEnv([
-    commentHeader("mini-app-server deployment contract").trimEnd(),
-    `DEFAULT_APP_MODE=${quoteEnv(service.defaultAppMode)}`,
-    `PLATFORM_BASE=${quoteEnv(service.platformBase)}`,
-    `PUBLIC_BASE=${quoteEnv(service.publicBase)}`,
-    `PORT=${service.port}`,
-    `HOST=${quoteEnv(service.host)}`
-  ]);
-}
-
 function renderImagineEnv(profile) {
   const service = profile.services.mcpServerImagine;
   return renderEnv([
@@ -1021,32 +1063,6 @@ function renderImagineEnv(profile) {
     "MCP_OBSERVABILITY_LOG_ENABLED=true",
     "MCP_OBSERVABILITY_LOG_MAX_BODY_LENGTH=2000",
     "MCP_OBSERVABILITY_LOG_INCLUDE_HEADERS=false"
-  ]);
-}
-
-function renderBashEnv(profile) {
-  const service = profile.services.mcpServerBash;
-  return renderEnv([
-    commentHeader("mcp-server-bash deployment contract").trimEnd(),
-    `HOST_PORT=${service.hostPort}`,
-    `SERVER_PORT=${service.serverPort}`,
-    "MCP_TOOLS_SPEC_LOCATION_PATTERN=./tools/*.yml",
-    "MCP_HTTP_MAX_BODY_BYTES=1048576",
-    "MCP_OBSERVABILITY_LOG_ENABLED=true",
-    "MCP_OBSERVABILITY_LOG_MAX_BODY_LENGTH=2000",
-    "MCP_OBSERVABILITY_LOG_INCLUDE_HEADERS=false",
-    `BASH_WORKING_DIRECTORY=${quoteEnv(service.workingDirectory)}`,
-    `BASH_ALLOWED_PATHS=${quoteEnv(service.allowedPaths)}`,
-    `BASH_ALLOWED_COMMANDS=${quoteEnv(service.allowedCommands)}`,
-    "BASH_PATH_CHECKED_COMMANDS=ls,cat,head,tail,git,rg,find",
-    "BASH_PATH_CHECK_BYPASS_COMMANDS=git",
-    "BASH_SHELL_FEATURES_ENABLED=false",
-    "BASH_SHELL_EXECUTABLE=bash",
-    "BASH_SHELL_TIMEOUT_MS=10000",
-    "BASH_MAX_COMMAND_CHARS=16000",
-    "BASH_MAX_OUTPUT_CHARS=8000",
-    "BASH_VARIABLE_SUBSTITUTION_ENABLED=false",
-    "BASH_VARIABLE_STORE_FILE=./data/bash-variables.json"
   ]);
 }
 
@@ -1072,25 +1088,52 @@ function renderMockEnv(profile) {
   ]);
 }
 
-function renderEmailEnv(profile) {
-  const service = profile.services.mcpServerEmail;
+function renderRunnerEnv(profile) {
+  const service = profile.services.agentPlatformRunner;
   return renderEnv([
-    commentHeader("mcp-server-email deployment contract").trimEnd(),
+    commentHeader("agent-platform-runner deployment contract").trimEnd(),
     `HOST_PORT=${service.hostPort}`,
-    `SERVER_PORT=${service.serverPort}`,
-    "SERVER_SHUTDOWN_TIMEOUT_SECONDS=10",
-    "MCP_TRANSPORT=http",
-    "MCP_HTTP_MAX_BODY_BYTES=1048576",
-    "MCP_RATE_LIMIT_ENABLED=false",
-    "MCP_RATE_LIMIT_RPS=5",
-    "MCP_RATE_LIMIT_BURST=10",
-    "MCP_TOOLS_SPEC_LOCATION_PATTERN=./tools/*.yml",
-    "MCP_OBSERVABILITY_LOG_ENABLED=true",
-    "MCP_OBSERVABILITY_LOG_MAX_BODY_LENGTH=2000",
-    "MCP_OBSERVABILITY_LOG_INCLUDE_HEADERS=false",
-    "MAIL_ACCOUNTS_CONFIG_PATH=./configs",
-    "MAIL_DEFAULT_FOLDER=INBOX",
-    "MAIL_DIAL_TIMEOUT_SECONDS=10"
+    `AGENT_AUTH_ENABLED=${service.authEnabled ? "true" : "false"}`,
+    `CHAT_IMAGE_TOKEN_SECRET=${quoteEnv(service.chatImageTokenSecret)}`,
+    `AGENTS_DIR=${quoteEnv(service.dirs.agents)}`,
+    `TEAMS_DIR=${quoteEnv(service.dirs.teams)}`,
+    `MODELS_DIR=${quoteEnv(service.dirs.models)}`,
+    `PROVIDERS_DIR=${quoteEnv(service.dirs.providers)}`,
+    `TOOLS_DIR=${quoteEnv(service.dirs.tools)}`,
+    `MCP_SERVERS_DIR=${quoteEnv(service.dirs.mcpServers)}`,
+    `VIEWPORT_SERVERS_DIR=${quoteEnv(service.dirs.viewportServers)}`,
+    `VIEWPORTS_DIR=${quoteEnv(service.dirs.viewports)}`,
+    `SKILLS_MARKET_DIR=${quoteEnv(service.dirs.skillsMarket)}`,
+    `SCHEDULES_DIR=${quoteEnv(service.dirs.schedules)}`,
+    `CHATS_DIR=${quoteEnv(service.dirs.chats)}`,
+    `ROOT_DIR=${quoteEnv(service.dirs.root)}`,
+    `PAN_DIR=${quoteEnv(service.dirs.pan)}`
+  ]);
+}
+
+function renderRunnerContainerHubConfig(profile) {
+  return `${[
+    "enabled: true",
+    `base-url: http://host.docker.internal:${profile.services.containerHub.port}`,
+    `auth-token: ${profile.services.containerHub.authToken}`,
+    "default-environment-id:",
+    "request-timeout-ms: 60000",
+    "default-sandbox-level: run",
+    "agent-idle-timeout-ms: 600000",
+    "destroy-queue-delay-ms: 5000"
+  ].join("\n")}\n`;
+}
+
+function renderContainerHubEnv(profile) {
+  const service = profile.services.containerHub;
+  return renderEnv([
+    commentHeader("agent-container-hub deployment contract").trimEnd(),
+    `BIND_ADDR=${quoteEnv(service.bindAddr)}`,
+    `AUTH_TOKEN=${quoteEnv(service.authToken)}`,
+    `CONFIG_ROOT=${quoteEnv(service.configRoot)}`,
+    `ROOTFS_ROOT=${quoteEnv(service.rootfsRoot)}`,
+    `BUILD_ROOT=${quoteEnv(service.buildRoot)}`,
+    `SESSION_MOUNT_TEMPLATE_ROOT=${quoteEnv(service.sessionMountTemplateRoot)}`
   ]);
 }
 
@@ -1120,13 +1163,13 @@ function collectWrites(profile, workspaceRoot, reposRoot, bcryptScriptPath) {
   siblingWrites.push({ path: repoPath(reposRoot, "pan-webclient", "configs", "local-public-key.pem"), content: normalizeMultiline(detailed.services.panWebclient.jwtPublicKeyPem) });
   siblingWrites.push({ path: repoPath(reposRoot, "term-webclient", ".env"), content: renderTermEnv(detailed, bcryptScriptPath) });
   siblingWrites.push({ path: repoPath(reposRoot, "term-webclient", "configs", "local-public-key.pem"), content: normalizeMultiline(detailed.services.termWebclient.jwtPublicKeyPem) });
-  siblingWrites.push({ path: repoPath(reposRoot, "mini-app-server", ".env"), content: renderMiniAppEnv(detailed) });
+  siblingWrites.push({ path: repoPath(reposRoot, "agent-platform-runner", ".env"), content: renderRunnerEnv(detailed) });
+  siblingWrites.push({ path: repoPath(reposRoot, "agent-platform-runner", "configs", "container-hub.yml"), content: renderRunnerContainerHubConfig(detailed) });
+  siblingWrites.push({ path: repoPath(reposRoot, "agent-container-hub", ".env"), content: renderContainerHubEnv(detailed) });
 
   if (normalized.mcp.enabled) {
     siblingWrites.push({ path: repoPath(reposRoot, "mcp-server-imagine", ".env"), content: renderImagineEnv(detailed) });
-    siblingWrites.push({ path: repoPath(reposRoot, "mcp-server-bash", ".env"), content: renderBashEnv(detailed) });
     siblingWrites.push({ path: repoPath(reposRoot, "mcp-server-mock", ".env"), content: renderMockEnv(detailed) });
-    siblingWrites.push({ path: repoPath(reposRoot, "mcp-server-email", ".env"), content: renderEmailEnv(detailed) });
   }
 
   return { rootWrites, siblingWrites };

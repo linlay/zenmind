@@ -14,7 +14,14 @@
     "listenPort": 11945
   },
   "agentPlatformRunner": {
-    "baseUrl": "http://host.docker.internal:11949"
+    "enabled": true,
+    "hostPort": 11949,
+    "baseUrl": "http://127.0.0.1:11949"
+  },
+  "containerHub": {
+    "enabled": false,
+    "port": 11960,
+    "authToken": ""
   },
   "admin": {
     "enabled": true,
@@ -35,15 +42,6 @@
     "webEnabled": true,
     "frontendPort": 11947,
     "webPasswordBcrypt": ""
-  },
-  "miniApp": {
-    "enabled": true,
-    "defaultAppMode": "dev",
-    "publicBase": "/ma",
-    "port": 11948
-  },
-  "sandboxes": {
-    "enabled": false
   },
   "mcp": {
     "enabled": true

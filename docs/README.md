@@ -41,6 +41,7 @@ macOS:
 
 ```bash
 ./setup-mac.sh --action check
+./setup-mac.sh --action download-all
 ./setup-mac.sh --action configure --web
 ./setup-mac.sh --action configure --cli
 ./setup-mac.sh --action configure --sync-only
@@ -65,6 +66,7 @@ Linux:
 ## 动作说明
 
 - `check`：输出 mac/Linux 环境检测报告，分 Required / Optional / Runtime / Next Steps 展示，并给出安装命令
+- `download-all`：仅 macOS 可用；按 sibling repo 目录批量 clone/同步源码仓库。缺失仓库执行 `git clone`，已有干净仓库执行 `git pull --ff-only`，有未提交改动或非 Git 目录则跳过并提示 warning。这一动作只处理源码仓库，不会下载 Docker 镜像
 - `configure --web`：打开本地单页 HTML 编辑器，只维护总 JSON
 - `configure --cli`：通过命令行向导维护总 JSON
 - `configure --sync-only`：将总 JSON 写入 sibling repo 的 `.env/configs`，同时生成根仓 compose env、override 和 gateway `nginx.conf`

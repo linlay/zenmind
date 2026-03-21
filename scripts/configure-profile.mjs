@@ -109,7 +109,11 @@ async function main() {
     profile.images.tag = await promptText(rl, "Image tag", profile.images.tag);
     profile.cloudflared.tunnelUuid = await promptText(rl, "Cloudflare Tunnel UUID", profile.cloudflared.tunnelUuid, { optional: true });
     profile.gateway.listenPort = await promptInteger(rl, "Gateway listen port", profile.gateway.listenPort);
-    profile.agentPlatformRunner.baseUrl = await promptText(rl, "Runner base URL", profile.agentPlatformRunner.baseUrl);
+    profile.agentPlatformRunner.enabled = await promptBoolean(rl, "Enable agent-platform-runner image", profile.agentPlatformRunner.enabled);
+    profile.agentPlatformRunner.hostPort = await promptInteger(rl, "Runner host port", profile.agentPlatformRunner.hostPort);
+    profile.containerHub.enabled = await promptBoolean(rl, "Enable agent-container-hub host service", profile.containerHub.enabled);
+    profile.containerHub.port = await promptInteger(rl, "Container Hub bind port", profile.containerHub.port);
+    profile.containerHub.authToken = await promptText(rl, "Container Hub auth token", profile.containerHub.authToken, { optional: true });
 
     process.stdout.write("\n== Services ==\n");
 
@@ -139,15 +143,6 @@ async function main() {
     } else {
       profile.term.webEnabled = false;
     }
-
-    profile.miniApp.enabled = await promptBoolean(rl, "Enable mini app service", profile.miniApp.enabled);
-    if (profile.miniApp.enabled) {
-      profile.miniApp.defaultAppMode = await promptText(rl, "Mini app default mode", profile.miniApp.defaultAppMode);
-      profile.miniApp.publicBase = await promptText(rl, "Mini app public base", profile.miniApp.publicBase);
-      profile.miniApp.port = await promptInteger(rl, "Mini app port", profile.miniApp.port);
-    }
-
-    profile.sandboxes.enabled = await promptBoolean(rl, "Enable sandboxes group", profile.sandboxes.enabled);
     profile.mcp.enabled = await promptBoolean(rl, "Enable MCP services", profile.mcp.enabled);
 
     fs.writeFileSync(profilePath, serializeProfileToJSONString(profile), "utf8");

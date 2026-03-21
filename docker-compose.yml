@@ -14,11 +14,9 @@ services:
       - zenmind-voice-server
       - pan-webclient-frontend
       - term-webclient-frontend
-      - mini-app-server
+      - agent-platform-runner
       - mcp-server-imagine
-      - mcp-server-bash
       - mcp-server-mock
-      - mcp-server-email
     networks:
       - zenmind-network
 
@@ -138,18 +136,50 @@ services:
         aliases:
           - term-webclient-frontend
 
-  mini-app-server:
-    image: "${MINI_APP_SERVER_IMAGE}"
-    container_name: mini-app-server
+  agent-platform-runner:
+    image: "${AGENT_PLATFORM_RUNNER_IMAGE}"
+    container_name: agent-platform-runner
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
-      - ../mini-app-server/.env
+      - ../agent-platform-runner/.env
+    environment:
+      SERVER_PORT: 8080
+      AGENTS_DIR: /opt/agents
+      TEAMS_DIR: /opt/teams
+      MODELS_DIR: /opt/models
+      PROVIDERS_DIR: /opt/providers
+      TOOLS_DIR: /opt/tools
+      MCP_SERVERS_DIR: /opt/mcp-servers
+      VIEWPORT_SERVERS_DIR: /opt/viewport-servers
+      VIEWPORTS_DIR: /opt/viewports
+      SKILLS_MARKET_DIR: /opt/skills-market
+      SCHEDULES_DIR: /opt/schedules
+      CHATS_DIR: /opt/chats
+      ROOT_DIR: /opt/root
+      PAN_DIR: /opt/pan
     ports:
-      - "${MINI_APP_PORT}:11948"
+      - "${AGENT_PLATFORM_RUNNER_HOST_PORT}:8080"
+    volumes:
+      - ../agent-platform-runner/configs:/opt/configs:ro
+      - ../.zenmind/agents:/opt/agents
+      - ../.zenmind/teams:/opt/teams
+      - ../.zenmind/models:/opt/models
+      - ../.zenmind/providers:/opt/providers
+      - ../.zenmind/tools:/opt/tools
+      - ../.zenmind/mcp-servers:/opt/mcp-servers
+      - ../.zenmind/viewport-servers:/opt/viewport-servers
+      - ../.zenmind/viewports:/opt/viewports
+      - ../.zenmind/skills-market:/opt/skills-market
+      - ../.zenmind/schedules:/opt/schedules
+      - ../.zenmind/chats:/opt/chats
+      - ../.zenmind/root:/opt/root
+      - ../.zenmind/pan:/opt/pan
     networks:
       zenmind-network:
         aliases:
-          - mini-app-server
+          - agent-platform-runner
 
   mcp-server-imagine:
     image: "${MCP_SERVER_IMAGINE_IMAGE}"
@@ -165,17 +195,6 @@ services:
         aliases:
           - mcp-server-imagine
 
-  mcp-server-bash:
-    image: "${MCP_SERVER_BASH_IMAGE}"
-    container_name: mcp-server-bash
-    restart: unless-stopped
-    env_file:
-      - ../mcp-server-bash/.env
-    networks:
-      zenmind-network:
-        aliases:
-          - mcp-server-bash
-
   mcp-server-mock:
     image: "${MCP_SERVER_MOCK_IMAGE}"
     container_name: mcp-server-mock
@@ -186,19 +205,6 @@ services:
       zenmind-network:
         aliases:
           - mcp-server-mock
-
-  mcp-server-email:
-    image: "${MCP_SERVER_EMAIL_IMAGE}"
-    container_name: mcp-server-email
-    restart: unless-stopped
-    env_file:
-      - ../mcp-server-email/.env
-    volumes:
-      - ../mcp-server-email/configs:/app/configs
-    networks:
-      zenmind-network:
-        aliases:
-          - mcp-server-email
 
 networks:
   zenmind-network:
