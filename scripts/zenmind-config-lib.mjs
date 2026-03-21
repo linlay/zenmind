@@ -1113,7 +1113,7 @@ function renderRunnerEnv(profile) {
 
 function renderRunnerContainerHubConfig(profile) {
   return `${[
-    "enabled: true",
+    `enabled: ${profile.services.containerHub.enabled ? "true" : "false"}`,
     `base-url: http://host.docker.internal:${profile.services.containerHub.port}`,
     `auth-token: ${profile.services.containerHub.authToken}`,
     "default-environment-id:",

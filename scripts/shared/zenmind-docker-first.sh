@@ -783,12 +783,15 @@ zenmind_run_logs() {
 
   if ! targets="$(zenmind_expand_log_targets "$VIEW_LOG_TARGET")"; then
     zenmind_summary_add_fail "unknown log target: $VIEW_LOG_TARGET"
-    zenmind_summary_add_warn "use --logs all, a product name, or a compose service name"
+    zenmind_summary_add_warn "use --logs all, a product name, a compose service name, or agent-container-hub"
     return 1
   fi
 
   mapfile -t target_list <<<"$targets"
   zenmind_compose_cmd "${cmd_args[@]}" "${target_list[@]}"
+  if [[ "$VIEW_LOG_TARGET" == "all" && "${VIEW_FOLLOW:-0}" != "1" ]] && zenmind_product_enabled "agent-container-hub"; then
+    zenmind_run_host_logs "agent-container-hub" || return 1
+  fi
   zenmind_summary_add_ok "showed logs for: $VIEW_LOG_TARGET"
 }
 
