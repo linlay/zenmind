@@ -107,7 +107,7 @@ Linux:
 
 根仓 `apply-config` 后会生成：
 
-- [`generated/docker-compose.env`](/Users/linlay-macmini/Project/zenmind/zenmind/generated/docker-compose.env)
+- [`generated/docker-compose.env`](/Users/linlay/Project/zenmind/zenmind/generated/docker-compose.env)
 - [`generated/docker-compose.override.yml`](/Users/linlay/Project/zenmind/zenmind/generated/docker-compose.override.yml)
 - [`generated/gateway/nginx.conf`](/Users/linlay/Project/zenmind/zenmind/generated/gateway/nginx.conf)
 
