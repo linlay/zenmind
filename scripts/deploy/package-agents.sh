@@ -35,7 +35,7 @@ Version source:
 
 Options:
   --include-demo        include agents whose directory name starts with demo
-  --include-api-keys    keep provider apiKey values in packaged configs
+  --include-api-keys    deprecated; packaged example configs are copied as-is
   --agents LIST         comma-separated agent keys to package
   -h, --help            show this help
 
@@ -161,6 +161,14 @@ ensure_layout() {
     err "providers directory not found: $ZENMIND_DIR/configs/providers"
     exit 1
   }
+  [[ -d "$ZENMIND_DIR/configs/mcp-servers" ]] || {
+    err "mcp-servers directory not found: $ZENMIND_DIR/configs/mcp-servers"
+    exit 1
+  }
+  [[ -d "$ZENMIND_DIR/configs/viewport-servers" ]] || {
+    err "viewport-servers directory not found: $ZENMIND_DIR/configs/viewport-servers"
+    exit 1
+  }
 }
 
 array_contains() {
@@ -187,6 +195,30 @@ resolve_yaml_file() {
     return 0
   fi
   return 1
+}
+
+resolve_example_yaml_file() {
+  local dir="$1"
+  local key="$2"
+  if [[ -f "$dir/$key.example.yml" ]]; then
+    printf '%s\n' "$dir/$key.example.yml"
+    return 0
+  fi
+  if [[ -f "$dir/$key.example.yaml" ]]; then
+    printf '%s\n' "$dir/$key.example.yaml"
+    return 0
+  fi
+  return 1
+}
+
+list_example_yaml_files() {
+  local dir="$1"
+  find "$dir" -maxdepth 1 -type f \( -name '*.example.yml' -o -name '*.example.yaml' \) | sort
+}
+
+count_example_yaml_files() {
+  local dir="$1"
+  list_example_yaml_files "$dir" | wc -l | tr -d '[:space:]'
 }
 
 extract_model_keys() {
@@ -481,9 +513,9 @@ collect_dependencies_for_agent() {
     local model_file=""
     [[ -n "$model_key" ]] || continue
     append_unique COLLECTED_MODELS "$model_key"
-    model_file="$(resolve_yaml_file "$ZENMIND_DIR/configs/models" "$model_key" || true)"
+    model_file="$(resolve_example_yaml_file "$ZENMIND_DIR/configs/models" "$model_key" || true)"
     [[ -n "$model_file" ]] || {
-      err "model config not found for agent '$agent_key': $model_key"
+      err "model example config not found for agent '$agent_key': $model_key"
       exit 1
     }
     provider_key="$(extract_provider_key "$model_file")"
@@ -531,18 +563,18 @@ collect_all_dependencies() {
   done
 
   for agent_key in "${COLLECTED_PROVIDERS[@]}"; do
-    resolve_yaml_file "$ZENMIND_DIR/configs/providers" "$agent_key" >/dev/null 2>&1 || {
-      err "provider config not found: $agent_key"
+    resolve_example_yaml_file "$ZENMIND_DIR/configs/providers" "$agent_key" >/dev/null 2>&1 || {
+      err "provider example config not found: $agent_key"
       exit 1
     }
   done
 
   for agent_key in "${COLLECTED_MCP_SERVERS[@]}"; do
-    resolve_yaml_file "$ZENMIND_DIR/configs/mcp-servers" "$agent_key" >/dev/null 2>&1 || {
-      err "MCP server config not found: $agent_key"
+    resolve_example_yaml_file "$ZENMIND_DIR/configs/mcp-servers" "$agent_key" >/dev/null 2>&1 || {
+      err "MCP server example config not found: $agent_key"
       exit 1
     }
-    viewport_file="$(resolve_yaml_file "$ZENMIND_DIR/configs/viewport-servers" "$agent_key" || true)"
+    viewport_file="$(resolve_example_yaml_file "$ZENMIND_DIR/configs/viewport-servers" "$agent_key" || true)"
     if [[ -n "$viewport_file" ]]; then
       append_unique COLLECTED_VIEWPORT_SERVERS "$agent_key"
     fi
@@ -559,23 +591,18 @@ collect_all_dependencies() {
 copy_provider_file() {
   local src="$1"
   local dest="$2"
+  cp "$src" "$dest"
+}
 
-  if [[ $INCLUDE_API_KEYS -eq 1 ]]; then
-    cp "$src" "$dest"
-    return 0
-  fi
-
-  awk '
-    {
-      if ($0 ~ /^[[:space:]]*apiKey:[[:space:]]*/) {
-        match($0, /^[[:space:]]*/)
-        indent = substr($0, 1, RLENGTH)
-        print indent "apiKey: \"\""
-        next
-      }
-      print
-    }
-  ' "$src" > "$dest"
+copy_example_config_dir() {
+  local src_dir="$1"
+  local dest_dir="$2"
+  local src=""
+  mkdir -p "$dest_dir"
+  while IFS= read -r src || [[ -n "$src" ]]; do
+    [[ -n "$src" ]] || continue
+    cp "$src" "$dest_dir/"
+  done < <(list_example_yaml_files "$src_dir")
 }
 
 copy_directory() {
@@ -715,6 +742,7 @@ copy_packaged_schedules() {
 
 build_archive() {
   local archive_name archive_dir archive_path staging_dir package_root
+  local models_example_count providers_example_count mcp_servers_example_count viewport_servers_example_count
   archive_name="${ARCHIVE_ROOT_NAME}-${VERSION}.tar.gz"
   archive_dir="${DIST_DIR}/${VERSION}"
   archive_path="${archive_dir}/${archive_name}"
@@ -732,7 +760,6 @@ build_archive() {
 
   local agent_key=""
   local src=""
-  local dest=""
 
   for agent_key in "${SELECTED_AGENTS[@]}"; do
     copy_directory "$ZENMIND_DIR/agents/$agent_key" "$package_root/agents"
@@ -741,31 +768,17 @@ build_archive() {
   mkdir -p "$package_root/teams"
   mkdir -p "$package_root/skills-market"
   mkdir -p "$package_root/schedules"
+  mkdir -p "$package_root/configs"
 
-  for agent_key in "${COLLECTED_MODELS[@]}"; do
-    src="$(resolve_yaml_file "$ZENMIND_DIR/configs/models" "$agent_key")"
-    mkdir -p "$package_root/configs/models"
-    cp "$src" "$package_root/configs/models/"
-  done
+  copy_example_config_dir "$ZENMIND_DIR/configs/models" "$package_root/configs/models"
+  copy_example_config_dir "$ZENMIND_DIR/configs/providers" "$package_root/configs/providers"
+  copy_example_config_dir "$ZENMIND_DIR/configs/mcp-servers" "$package_root/configs/mcp-servers"
+  copy_example_config_dir "$ZENMIND_DIR/configs/viewport-servers" "$package_root/configs/viewport-servers"
 
-  for agent_key in "${COLLECTED_PROVIDERS[@]}"; do
-    src="$(resolve_yaml_file "$ZENMIND_DIR/configs/providers" "$agent_key")"
-    dest="$package_root/configs/providers/$(basename "$src")"
-    mkdir -p "$package_root/configs/providers"
-    copy_provider_file "$src" "$dest"
-  done
-
-  for agent_key in "${COLLECTED_MCP_SERVERS[@]}"; do
-    src="$(resolve_yaml_file "$ZENMIND_DIR/configs/mcp-servers" "$agent_key")"
-    mkdir -p "$package_root/configs/mcp-servers"
-    cp "$src" "$package_root/configs/mcp-servers/"
-  done
-
-  for agent_key in "${COLLECTED_VIEWPORT_SERVERS[@]}"; do
-    src="$(resolve_yaml_file "$ZENMIND_DIR/configs/viewport-servers" "$agent_key")"
-    mkdir -p "$package_root/configs/viewport-servers"
-    cp "$src" "$package_root/configs/viewport-servers/"
-  done
+  models_example_count="$(count_example_yaml_files "$ZENMIND_DIR/configs/models")"
+  providers_example_count="$(count_example_yaml_files "$ZENMIND_DIR/configs/providers")"
+  mcp_servers_example_count="$(count_example_yaml_files "$ZENMIND_DIR/configs/mcp-servers")"
+  viewport_servers_example_count="$(count_example_yaml_files "$ZENMIND_DIR/configs/viewport-servers")"
 
   for agent_key in "${COLLECTED_TOOLS[@]}"; do
     src="$(resolve_yaml_file "$ZENMIND_DIR/tools" "$agent_key")"
@@ -782,18 +795,7 @@ build_archive() {
   log "archive created: $archive_path"
   log "version: $VERSION"
   log "agents: ${SELECTED_AGENTS[*]}"
-  if [[ ${#COLLECTED_MODELS[@]} -gt 0 ]]; then
-    log "models: ${COLLECTED_MODELS[*]}"
-  fi
-  if [[ ${#COLLECTED_PROVIDERS[@]} -gt 0 ]]; then
-    log "providers: ${COLLECTED_PROVIDERS[*]}"
-  fi
-  if [[ ${#COLLECTED_MCP_SERVERS[@]} -gt 0 ]]; then
-    log "mcp-servers: ${COLLECTED_MCP_SERVERS[*]}"
-  fi
-  if [[ ${#COLLECTED_VIEWPORT_SERVERS[@]} -gt 0 ]]; then
-    log "viewport-servers: ${COLLECTED_VIEWPORT_SERVERS[*]}"
-  fi
+  log "config examples packaged: models=${models_example_count} providers=${providers_example_count} mcp-servers=${mcp_servers_example_count} viewport-servers=${viewport_servers_example_count}"
   if [[ ${#COLLECTED_TOOLS[@]} -gt 0 ]]; then
     log "tools: ${COLLECTED_TOOLS[*]}"
   fi

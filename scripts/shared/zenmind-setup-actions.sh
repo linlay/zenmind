@@ -700,6 +700,7 @@ zenmind_release_unset_env_key() {
 zenmind_release_set_yaml_enabled_false() {
   local file="$1"
   local tmp
+  [[ -f "$file" ]] || return 0
   tmp="$(mktemp)"
   awk '
     BEGIN { done = 0 }
@@ -716,6 +717,82 @@ zenmind_release_set_yaml_enabled_false() {
     }
   ' "$file" >"$tmp"
   mv "$tmp" "$file"
+}
+
+zenmind_release_copy_dir_if_present() {
+  local src="$1"
+  local dest="$2"
+  if [[ -d "$src" ]]; then
+    mkdir -p "$(dirname "$dest")"
+    cp -R "$src" "$dest"
+    return 0
+  fi
+  mkdir -p "$dest"
+}
+
+zenmind_release_base_url_for_server_key() {
+  case "$1" in
+    imagine)
+      printf '%s\n' "http://mcp-server-imagine:8080"
+      ;;
+    mock)
+      printf '%s\n' "http://mcp-server-mock:8080"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+zenmind_release_set_yaml_base_url() {
+  local file="$1"
+  local base_url="$2"
+  local tmp
+  [[ -f "$file" ]] || return 0
+  tmp="$(mktemp)"
+  awk -v base_url="$base_url" '
+    BEGIN { done = 0 }
+    $0 ~ /^[[:space:]]*baseUrl:[[:space:]]*/ && !done {
+      match($0, /^[[:space:]]*/)
+      indent = substr($0, 1, RLENGTH)
+      print indent "baseUrl: " base_url
+      done = 1
+      next
+    }
+    { print }
+    END {
+      if (!done) {
+        print "baseUrl: " base_url
+      }
+    }
+  ' "$file" >"$tmp"
+  mv "$tmp" "$file"
+}
+
+zenmind_release_materialize_example_config_dir() {
+  local dir="$1"
+  local rewrite_base_url="${2:-false}"
+  local example_file base_name live_file server_key base_url
+
+  mkdir -p "$dir"
+  find "$dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) \
+    ! \( -name '*.example.yml' -o -name '*.example.yaml' \) -delete
+
+  while IFS= read -r example_file || [[ -n "$example_file" ]]; do
+    [[ -n "$example_file" ]] || continue
+    base_name="$(basename "$example_file")"
+    live_file="$dir/${base_name/.example./.}"
+    cp "$example_file" "$live_file"
+    if [[ "$rewrite_base_url" == "true" ]]; then
+      server_key="${base_name%%.example.*}"
+      base_url="$(zenmind_release_base_url_for_server_key "$server_key" || true)"
+      if [[ -n "$base_url" ]]; then
+        zenmind_release_set_yaml_base_url "$live_file" "$base_url"
+      fi
+    fi
+  done < <(find "$dir" -maxdepth 1 -type f \( -name '*.example.yml' -o -name '*.example.yaml' \) | sort)
+
+  find "$dir" -maxdepth 1 -type f \( -name '*.example.yml' -o -name '*.example.yaml' \) -delete
 }
 
 zenmind_release_remove_line_exact() {
@@ -784,13 +861,14 @@ zenmind_release_patch_runner_bundle() {
 zenmind_release_prepare_agents_bundle() {
   local version_dir="$1"
   local bundle="$2"
-  local deploy_zenmind_dir runner_dir mcp_templates_dir viewport_templates_dir tmp_extract extracted_root
+  local deploy_zenmind_dir tmp_extract extracted_root
   deploy_zenmind_dir="$(zenmind_release_zenmind_dir "$version_dir")"
-  runner_dir="$(zenmind_release_service_dir "$version_dir" "agent-platform-runner")"
-  mcp_templates_dir="$runner_dir/runtime/mcp-servers"
-  viewport_templates_dir="$runner_dir/runtime/viewport-servers"
-
-  rm -rf "$deploy_zenmind_dir/agents" "$deploy_zenmind_dir/configs/models" "$deploy_zenmind_dir/configs/providers"
+  rm -rf \
+    "$deploy_zenmind_dir/agents" \
+    "$deploy_zenmind_dir/configs/models" \
+    "$deploy_zenmind_dir/configs/providers" \
+    "$deploy_zenmind_dir/configs/mcp-servers" \
+    "$deploy_zenmind_dir/configs/viewport-servers"
   mkdir -p "$deploy_zenmind_dir/configs"
   tmp_extract="$(mktemp -d)"
   tar -xzf "$bundle" -C "$tmp_extract"
@@ -800,17 +878,17 @@ zenmind_release_prepare_agents_bundle() {
     zenmind_summary_add_fail "failed to extract agents bundle: $bundle"
     return 1
   }
-  cp -R "$extracted_root/agents" "$deploy_zenmind_dir/agents"
-  cp -R "$extracted_root/configs/models" "$deploy_zenmind_dir/configs/models"
-  cp -R "$extracted_root/configs/providers" "$deploy_zenmind_dir/configs/providers"
+  zenmind_release_copy_dir_if_present "$extracted_root/agents" "$deploy_zenmind_dir/agents"
+  zenmind_release_copy_dir_if_present "$extracted_root/configs/models" "$deploy_zenmind_dir/configs/models"
+  zenmind_release_copy_dir_if_present "$extracted_root/configs/providers" "$deploy_zenmind_dir/configs/providers"
+  zenmind_release_copy_dir_if_present "$extracted_root/configs/mcp-servers" "$deploy_zenmind_dir/configs/mcp-servers"
+  zenmind_release_copy_dir_if_present "$extracted_root/configs/viewport-servers" "$deploy_zenmind_dir/configs/viewport-servers"
   rm -rf "$tmp_extract"
 
-  if [[ ! -d "$deploy_zenmind_dir/configs/mcp-servers" ]]; then
-    cp -R "$mcp_templates_dir" "$deploy_zenmind_dir/configs/mcp-servers"
-  fi
-  if [[ ! -d "$deploy_zenmind_dir/configs/viewport-servers" ]]; then
-    cp -R "$viewport_templates_dir" "$deploy_zenmind_dir/configs/viewport-servers"
-  fi
+  zenmind_release_materialize_example_config_dir "$deploy_zenmind_dir/configs/models"
+  zenmind_release_materialize_example_config_dir "$deploy_zenmind_dir/configs/providers"
+  zenmind_release_materialize_example_config_dir "$deploy_zenmind_dir/configs/mcp-servers" true
+  zenmind_release_materialize_example_config_dir "$deploy_zenmind_dir/configs/viewport-servers" true
 }
 
 zenmind_release_copy_previous_state() {
@@ -1210,11 +1288,11 @@ zenmind_release_prepare_version_dir() {
     zenmind_summary_add_fail "manifest is missing zenmind-agents artifact"
     return 1
   }
+  zenmind_release_copy_previous_state "$previous_active" "$version_dir"
   zenmind_release_prepare_agents_bundle "$version_dir" "$agents_bundle" || {
     rm -f "$manifest_file" "$artifacts_json"
     return 1
   }
-  zenmind_release_copy_previous_state "$previous_active" "$version_dir"
   zenmind_release_prepare_active_workspace "$version_dir" || {
     rm -f "$manifest_file" "$artifacts_json"
     return 1
