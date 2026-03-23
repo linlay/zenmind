@@ -39,16 +39,26 @@ ZenMind 现在是 sibling repo 形态的总控仓：
 密码在编辑页中以明文输入，但保存到 JSON 时只写入对应的 bcrypt 字段，不会写入 `plain`。
 镜像仓库与 tag 也写进总 JSON；启动时会按 `${images.registry}/{service}:${images.tag}` 规则拉取远程镜像。
 
+安装方式和升级状态不写进 profile，而是单独记录在 monorepo 根目录：
+
+- 安装状态：`../.zenmind/install-state.json`
+- release 安装目录：`../release/<version>/`
+- release manifest：`dist/<version>/release-manifest.json`
+
 ## 使用方式
 
 macOS:
 
 ```bash
 ./setup-mac.sh --action check
-./setup-mac.sh --action download-all
 ./setup-mac.sh --action configure --web
 ./setup-mac.sh --action configure --cli
 ./setup-mac.sh --action configure --sync-only
+./setup-mac.sh --action install --source --manifest ./dist/v0.1
+./setup-mac.sh --action install --release --manifest ./dist/v0.1
+./setup-mac.sh --action upgrade --source --manifest ./dist/v0.1
+./setup-mac.sh --action upgrade --release --manifest ./dist/v0.1
+./setup-mac.sh --action check-update --manifest ./dist/v0.1
 ./setup-mac.sh --action start
 ./setup-mac.sh --action view
 ./setup-mac.sh --action view --logs gateway --tail 200
@@ -63,6 +73,11 @@ Linux:
 ./setup-linux.sh --action configure --web
 ./setup-linux.sh --action configure --cli
 ./setup-linux.sh --action configure --sync-only
+./setup-linux.sh --action install --source --manifest ./dist/v0.1
+./setup-linux.sh --action install --release --manifest ./dist/v0.1
+./setup-linux.sh --action upgrade --source --manifest ./dist/v0.1
+./setup-linux.sh --action upgrade --release --manifest ./dist/v0.1
+./setup-linux.sh --action check-update --manifest ./dist/v0.1
 ./setup-linux.sh --action start
 ./setup-linux.sh --action view
 ./setup-linux.sh --action stop
@@ -71,13 +86,18 @@ Linux:
 ## 动作说明
 
 - `check`：输出 mac/Linux 环境检测报告，分 Required / Optional / Runtime / Next Steps 展示，并给出安装命令
-- `download-all`：仅 macOS 可用；按 sibling repo 目录批量 clone/同步源码仓库。缺失仓库执行 `git clone`，已有干净仓库执行 `git pull --ff-only`，有未提交改动或非 Git 目录则跳过并提示 warning。这一动作只处理源码仓库，不会下载 Docker 镜像
 - `configure --web`：打开本地单页 HTML 编辑器，只维护总 JSON
 - `configure --cli`：通过命令行向导维护总 JSON
 - `configure --sync-only`：将总 JSON 写入 sibling repo 的 `.env/configs`，同时生成根仓 compose env、override 和 gateway `nginx.conf`
-- `start`：先执行 `configure --sync-only`，再先启动 startup list 中的宿主机程序，然后检查镜像、缺失则 `docker pull`，最后启动镜像产品容器
-- `stop`：先停止 startup list 中的镜像容器，再停止 ZenMind 管理的宿主机程序
-- `view`：分组查看镜像产品状态、宿主机程序状态、gateway `healthz`、cloudflared 安装/配置/运行状态；可用 `--logs` 查看容器日志或 `agent-container-hub` 宿主机日志
+- `install --source`：按 sibling repo 目录 clone/同步源码仓库，切到 manifest 指定的稳定 tag，执行 `apply-config`，并写入 install state
+- `install --release`：按 manifest 准备 `../release/<version>/` 工作区，抽取 bundle、初始化缺失配置、保留已有 live config，并写入 install state
+- `upgrade --source`：检查源码仓 dirty 状态，切到新的稳定 tag，重新同步配置；失败时回滚到升级前 refs
+- `upgrade --release`：先准备新版本工作区，再停旧栈、启新栈、做健康检查；失败时恢复旧版本并保留上一版本目录
+- `check-update`：读取本地或远程 manifest，对比当前 install state；无状态时只展示最新稳定版和推荐安装命令
+- `start`：根据 `install-state.json` 分流。`source` 模式继续走根仓 compose + host program；`release` 模式启动 `../release/<version>/deploy` 下整栈 bundle
+- `stop`：根据当前 install mode 分流停止 source 或 release 栈
+- `view`：根据当前 install mode 分流查看状态；`source` 模式保留原有 compose/host 程序视图，`release` 模式查看当前 active version、docker 容器和健康检查
+- `download-all`：已废弃，当前等价于 `install --source`
 
 ## 路由契约
 
@@ -102,6 +122,19 @@ Linux:
 1. 启动网关容器，确认 `http://127.0.0.1:11945/healthz` 可访问
 2. 运行 `./setup-mac.sh --action setup-cf-tunnel` 或 Linux 对应动作
 3. 在 `~/.cloudflared/config.yml` 中将 hostname 指向 `http://127.0.0.1:11945`
+
+## Deploy 脚本
+
+- agent 打包入口：`./scripts/deploy/package-agents.sh`
+- 兼容入口：`./scripts/package.sh`
+- monorepo dist 收集入口：`./scripts/deploy/collect-dist.sh <version>`
+- `collect-dist.sh` 默认把收集结果写到 `./dist/<version>/`
+- `collect-dist.sh` 还会在目标目录生成 `release-manifest.json` 与 `SHA256SUMS`
+- `zenmind` 的发布版本单一来源是根目录 `VERSION`，格式固定为 `vX.Y.Z`
+- `package-agents.sh` 优先读取环境变量 `VERSION`，否则读取根目录 `VERSION`
+- `package-agents.sh` 仍然从根仓 `.zenmind/` 读取运行时工作区，并把归档写到 `.zenmind/dist/<version>/zenmind-agents-<version>.tar.gz`
+- `collect-dist.sh` 会从 monorepo 各项目的 `dist/` 中收集匹配版本的 tarball，也会从根仓 `.zenmind/dist/` 收集 `zenmind` agent 包
+- 历史时间戳命名的 agent 包会保留在 `.zenmind/dist/`，但不会再被 `collect-dist.sh` 收集
 
 ## 生成结果
 

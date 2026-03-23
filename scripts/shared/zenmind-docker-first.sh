@@ -682,7 +682,7 @@ zenmind_view_host_service() {
   fi
 }
 
-zenmind_run_start() {
+zenmind_run_start_source() {
   local services
   local product
 
@@ -722,7 +722,7 @@ zenmind_run_start() {
   zenmind_check_cloudflare_status
 }
 
-zenmind_run_stop() {
+zenmind_run_stop_source() {
   local services
   local product
 
@@ -834,7 +834,7 @@ zenmind_run_logs() {
   zenmind_summary_add_ok "showed logs for: $VIEW_LOG_TARGET"
 }
 
-zenmind_run_view() {
+zenmind_run_view_source() {
   if ! setup_prepare_docker_alias; then
     zenmind_summary_add_fail "docker is required for view"
     return 1
@@ -1073,6 +1073,10 @@ zenmind_main() {
   ZENMIND_OS="$1"
   shift
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  # Load extended setup actions after the base source-mode functions exist.
+  # This lets the helper wrap source-mode behavior with install-state and release-mode flows.
+  # shellcheck source=scripts/shared/zenmind-setup-actions.sh
+  source "${SCRIPT_DIR}/scripts/shared/zenmind-setup-actions.sh"
   zenmind_summary_reset
   zenmind_parse_args "$@"
   if [[ -z "${ACTION:-}" ]]; then
