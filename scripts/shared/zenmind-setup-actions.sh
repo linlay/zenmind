@@ -131,6 +131,10 @@ zenmind_state_read_to_file() {
   return 1
 }
 
+zenmind_state_exists() {
+  [[ -f "$(zenmind_install_state_path)" ]]
+}
+
 zenmind_state_write_from_file() {
   local input_file="$1"
   node "$(zenmind_setup_state_cli_path)" state-write --workspace-root "$SCRIPT_DIR" <"$input_file" >/dev/null
@@ -269,6 +273,65 @@ zenmind_current_mode_for_runtime_action() {
   fi
   zenmind_json_get "$state_file" "installMode"
   rm -f "$state_file"
+}
+
+zenmind_interactive_state_mode() {
+  if zenmind_state_exists; then
+    printf 'installed\n'
+    return 0
+  fi
+  printf 'fresh\n'
+}
+
+zenmind_interactive_upgrade_label() {
+  local state_file manifest_file current_version install_mode manifest_source latest_version
+  state_file="$(mktemp)"
+  manifest_file="$(mktemp)"
+
+  if ! zenmind_state_read_to_file "$state_file" >/dev/null 2>/dev/null; then
+    rm -f "$state_file" "$manifest_file"
+    printf '升级\n'
+    return 0
+  fi
+
+  install_mode="$(zenmind_json_get "$state_file" "installMode" 2>/dev/null || true)"
+  current_version="$(zenmind_json_get "$state_file" "currentVersion" 2>/dev/null || true)"
+  manifest_source="${MANIFEST_SOURCE_ARG:-$(zenmind_json_get "$state_file" "manifestSource" 2>/dev/null || true)}"
+
+  local saved_manifest_arg="${MANIFEST_SOURCE_ARG:-}"
+  MANIFEST_SOURCE_ARG="$manifest_source"
+  if ! zenmind_manifest_load_to_file "$manifest_file" >/dev/null 2>/dev/null; then
+    MANIFEST_SOURCE_ARG="$saved_manifest_arg"
+    rm -f "$state_file" "$manifest_file"
+    printf '升级\n'
+    return 0
+  fi
+  MANIFEST_SOURCE_ARG="$saved_manifest_arg"
+
+  if [[ "$install_mode" == "source" ]]; then
+    latest_version="$(zenmind_json_get "$manifest_file" "sourceTag" 2>/dev/null || true)"
+  else
+    latest_version="$(zenmind_json_get "$manifest_file" "stackVersion" 2>/dev/null || true)"
+  fi
+
+  rm -f "$state_file" "$manifest_file"
+  if [[ -n "$latest_version" && "$latest_version" != "$current_version" ]]; then
+    printf '升级到 %s\n' "$latest_version"
+    return 0
+  fi
+  printf '升级\n'
+}
+
+zenmind_show_fresh_intro_if_needed() {
+  if [[ "${ZENMIND_FRESH_GUIDE_SHOWN:-0}" == "1" ]]; then
+    return 0
+  fi
+  echo
+  echo "首次使用建议按这三步走："
+  echo "  1) 先做环境检查"
+  echo "  2) 再完成用户配置"
+  echo "  3) 最后执行安装"
+  ZENMIND_FRESH_GUIDE_SHOWN=1
 }
 
 zenmind_source_repo_dir() {
@@ -1282,6 +1345,27 @@ zenmind_run_check_update() {
   rm -f "$manifest_file" "$state_file"
 }
 
+zenmind_run_view_uninstalled() {
+  local manifest_file profile_path
+  profile_path="$(zenmind_profile_path)"
+
+  zenmind_summary_add_warn "install state missing in current workspace: $(zenmind_install_state_path)"
+  if [[ -f "$profile_path" ]]; then
+    zenmind_summary_add_ok "user profile exists: ${profile_path}"
+  else
+    zenmind_summary_add_warn "user profile missing; it will be created from example on first configure/apply"
+  fi
+
+  manifest_file="$(mktemp)"
+  if zenmind_manifest_load_to_file "$manifest_file" >/dev/null 2>/dev/null; then
+    zenmind_summary_add_ok "manifest reachable: $(zenmind_json_get "$manifest_file" "__source" 2>/dev/null || true)"
+    zenmind_summary_add_ok "latest stable version: $(zenmind_json_get "$manifest_file" "stackVersion" 2>/dev/null || true)"
+  else
+    zenmind_summary_add_warn "manifest unavailable right now; install can still work later with --manifest <local-path>"
+  fi
+  rm -f "$manifest_file"
+}
+
 zenmind_release_logs() {
   local version_dir="$1"
   local target="$2"
@@ -1417,6 +1501,10 @@ zenmind_run_stop() {
 
 zenmind_run_view() {
   local install_mode
+  if ! zenmind_state_exists; then
+    zenmind_run_view_uninstalled
+    return 0
+  fi
   install_mode="$(zenmind_current_mode_for_runtime_action)" || return 1
   case "$install_mode" in
     source) zenmind_run_view_source ;;
@@ -1438,16 +1526,20 @@ zenmind_usage() {
   cat <<USAGE
 Usage: ./setup-<os>.sh [--action ACTION] [options]
 
-Interactive menu (default):
-  1) 环境检测
-  2) 用户配置
-  3) 安装
-  4) 升级
-  5) 启动
-  6) 停止
-  7) 查看状态/日志
-  8) 检查新版本
-  0) 退出
+Interactive menu (default, adapts to current workspace state):
+  Fresh install:
+    1) 环境检测
+    2) 用户配置
+    3) 安装
+    4) 查看状态
+    0) 退出
+  Installed:
+    1) 启动
+    2) 停止
+    3) 修改用户配置
+    4) 查看状态
+    5) 升级 / 升级到 <version>
+    0) 退出
 
 Options:
   --action         check | configure | install | upgrade | start | stop | view | check-update | download-all
@@ -1474,15 +1566,27 @@ USAGE
 }
 
 zenmind_menu() {
-  cat <<MENU
+  local state_mode upgrade_label
+  state_mode="$(zenmind_interactive_state_mode)"
+  if [[ "$state_mode" == "fresh" ]]; then
+    zenmind_show_fresh_intro_if_needed
+    cat <<MENU
 1) 环境检测
 2) 用户配置
 3) 安装
-4) 升级
-5) 启动
-6) 停止
-7) 查看状态/日志
-8) 检查新版本
+4) 查看状态
+0) 退出
+MENU
+    return 0
+  fi
+
+  upgrade_label="$(zenmind_interactive_upgrade_label)"
+  cat <<MENU
+1) 启动
+2) 停止
+3) 修改用户配置
+4) 查看状态
+5) ${upgrade_label}
 0) 退出
 MENU
 }
@@ -1606,23 +1710,32 @@ zenmind_dispatch() {
 }
 
 zenmind_interactive_loop() {
-  local choice
+  local choice state_mode
   while true; do
     echo
     zenmind_menu
     read -r -p "Select an action: " choice
-    case "$choice" in
-      1) ACTION="check" ;;
-      2) ACTION="configure"; CONFIGURE_MODE="" ;;
-      3) ACTION="install"; INSTALL_MODE="" ;;
-      4) ACTION="upgrade"; INSTALL_MODE="" ;;
-      5) ACTION="start" ;;
-      6) ACTION="stop" ;;
-      7) ACTION="view" ;;
-      8) ACTION="check-update" ;;
-      0) exit 0 ;;
-      *) setup_warn "unknown choice: $choice"; continue ;;
-    esac
+    state_mode="$(zenmind_interactive_state_mode)"
+    if [[ "$state_mode" == "fresh" ]]; then
+      case "$choice" in
+        1) ACTION="check" ;;
+        2) ACTION="configure"; CONFIGURE_MODE="" ;;
+        3) ACTION="install"; INSTALL_MODE="" ;;
+        4) ACTION="view" ;;
+        0) exit 0 ;;
+        *) setup_warn "unknown choice: $choice"; continue ;;
+      esac
+    else
+      case "$choice" in
+        1) ACTION="start" ;;
+        2) ACTION="stop" ;;
+        3) ACTION="configure"; CONFIGURE_MODE="" ;;
+        4) ACTION="view" ;;
+        5) ACTION="upgrade"; INSTALL_MODE="" ;;
+        0) exit 0 ;;
+        *) setup_warn "unknown choice: $choice"; continue ;;
+      esac
+    fi
     zenmind_summary_reset
     zenmind_dispatch
     zenmind_print_summary "$ACTION"

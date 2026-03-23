@@ -58,7 +58,6 @@ macOS:
 ./setup-mac.sh --action install --release --manifest ./dist/v0.1
 ./setup-mac.sh --action upgrade --source --manifest ./dist/v0.1
 ./setup-mac.sh --action upgrade --release --manifest ./dist/v0.1
-./setup-mac.sh --action check-update --manifest ./dist/v0.1
 ./setup-mac.sh --action start
 ./setup-mac.sh --action view
 ./setup-mac.sh --action view --logs gateway --tail 200
@@ -77,11 +76,17 @@ Linux:
 ./setup-linux.sh --action install --release --manifest ./dist/v0.1
 ./setup-linux.sh --action upgrade --source --manifest ./dist/v0.1
 ./setup-linux.sh --action upgrade --release --manifest ./dist/v0.1
-./setup-linux.sh --action check-update --manifest ./dist/v0.1
 ./setup-linux.sh --action start
 ./setup-linux.sh --action view
 ./setup-linux.sh --action stop
 ```
+
+交互菜单会按当前目录 install state 自适应：
+
+- 未安装态：`环境检查 / 用户配置 / 安装 / 查看状态`
+- 已安装态：`启动 / 停止 / 修改用户配置 / 查看状态 / 升级`
+
+如果 setup 检测到当前目录已有安装信息，还会先静默检查一次升级；有新版本时，菜单会直接显示 `升级到 vX.Y.Z`。
 
 ## 动作说明
 
@@ -93,11 +98,12 @@ Linux:
 - `install --release`：按 manifest 准备 `../release/<version>/` 工作区，抽取 bundle、初始化缺失配置、保留已有 live config，并写入 install state
 - `upgrade --source`：检查源码仓 dirty 状态，切到新的稳定 tag，重新同步配置；失败时回滚到升级前 refs
 - `upgrade --release`：先准备新版本工作区，再停旧栈、启新栈、做健康检查；失败时恢复旧版本并保留上一版本目录
-- `check-update`：读取本地或远程 manifest，对比当前 install state；无状态时只展示最新稳定版和推荐安装命令
 - `start`：根据 `install-state.json` 分流。`source` 模式继续走根仓 compose + host program；`release` 模式启动 `../release/<version>/deploy` 下整栈 bundle
 - `stop`：根据当前 install mode 分流停止 source 或 release 栈
-- `view`：根据当前 install mode 分流查看状态；`source` 模式保留原有 compose/host 程序视图，`release` 模式查看当前 active version、docker 容器和健康检查
+- `view`：根据当前 install mode 分流查看状态；无 install state 时显示未安装状态、profile 是否存在、manifest 是否可读；已安装时继续显示 source/release 运行状态
 - `download-all`：已废弃，当前等价于 `install --source`
+
+`check-update` 仍保留给 CLI 兼容使用，但不再出现在交互菜单。
 
 ## 路由契约
 
