@@ -12,10 +12,14 @@ function parseArgs(argv) {
   const args = {
     distDir: "",
     version: "",
+    releaseLine: "",
     channel: "stable",
     sourceTag: "",
     imageRegistry: "registry.example.com/zenmind",
-    imageTag: ""
+    imageTag: "",
+    artifactBasePath: "",
+    output: "",
+    writeSums: true
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -27,6 +31,10 @@ function parseArgs(argv) {
         break;
       case "--version":
         args.version = argv[index + 1];
+        index += 1;
+        break;
+      case "--release-line":
+        args.releaseLine = argv[index + 1];
         index += 1;
         break;
       case "--channel":
@@ -45,6 +53,17 @@ function parseArgs(argv) {
         args.imageTag = argv[index + 1];
         index += 1;
         break;
+      case "--artifact-base-path":
+        args.artifactBasePath = argv[index + 1];
+        index += 1;
+        break;
+      case "--output":
+        args.output = path.resolve(argv[index + 1]);
+        index += 1;
+        break;
+      case "--no-sums":
+        args.writeSums = false;
+        break;
       default:
         throw new Error(`unknown argument: ${arg}`);
     }
@@ -58,17 +77,17 @@ function parseArgs(argv) {
 }
 
 function detectArtifact(fileName) {
-  const agentsMatch = fileName.match(/^(zenmind-agents)-(v\d+\.\d+\.\d+)\.tar\.gz$/);
-  if (agentsMatch) {
+  const zenmindDataMatch = fileName.match(/^(zenmind-data)-(v\d+\.\d+\.\d+)\.tar\.gz$/);
+  if (zenmindDataMatch) {
     return {
-      id: "zenmind-agents",
-      service: "zenmind-agents",
+      id: "zenmind-data",
+      service: "zenmind-data",
       runtime: "runtime",
       fileName
     };
   }
 
-  const match = fileName.match(/^(.*?)-(v\d+\.\d+\.\d+)-(darwin|linux)-(amd64|arm64)\.tar\.gz$/);
+  const match = fileName.match(/^(.*?)-(v\d+\.\d+\.\d+)-(darwin|linux)(?:-(host))?-(amd64|arm64)\.tar\.gz$/);
   if (!match) {
     return null;
   }
@@ -86,7 +105,7 @@ function detectArtifact(fileName) {
     runtime,
     fileName,
     os: match[3],
-    arch: match[4]
+    arch: match[5]
   };
 }
 
@@ -98,6 +117,7 @@ function sha256(filePath) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
+  const outputPath = args.output || path.join(args.distDir, "release-manifest.json");
   const files = fs.readdirSync(args.distDir)
     .filter((name) => name.endsWith(".tar.gz"))
     .sort();
@@ -112,9 +132,12 @@ function main() {
     }
     const filePath = path.join(args.distDir, fileName);
     const sum = sha256(filePath);
+    const relativeUrl = args.artifactBasePath
+      ? path.posix.join(args.artifactBasePath, fileName)
+      : fileName;
     artifacts.push({
       ...artifact,
-      url: fileName,
+      url: relativeUrl,
       sha256: sum
     });
     sums.push(`${sum}  ${fileName}`);
@@ -124,6 +147,7 @@ function main() {
     schemaVersion: RELEASE_MANIFEST_SCHEMA_VERSION,
     channel: args.channel,
     stackVersion: args.version,
+    releaseLine: args.releaseLine || "",
     publishedAt: new Date().toISOString(),
     sourceTag: args.sourceTag || args.version,
     images: {
@@ -136,15 +160,17 @@ function main() {
   };
 
   fs.writeFileSync(
-    path.join(args.distDir, "release-manifest.json"),
+    outputPath,
     `${JSON.stringify(manifest, null, 2)}\n`,
     "utf8"
   );
-  fs.writeFileSync(
-    path.join(args.distDir, "SHA256SUMS"),
-    `${sums.join("\n")}\n`,
-    "utf8"
-  );
+  if (args.writeSums) {
+    fs.writeFileSync(
+      path.join(args.distDir, "SHA256SUMS"),
+      `${sums.join("\n")}\n`,
+      "utf8"
+    );
+  }
 }
 
 main();

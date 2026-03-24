@@ -769,30 +769,20 @@ zenmind_release_set_yaml_base_url() {
   mv "$tmp" "$file"
 }
 
-zenmind_release_materialize_example_config_dir() {
+zenmind_release_rewrite_registry_base_urls_in_dir() {
   local dir="$1"
-  local rewrite_base_url="${2:-false}"
-  local example_file base_name live_file server_key base_url
+  local registry_file base_name server_key base_url
 
   mkdir -p "$dir"
-  find "$dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) \
-    ! \( -name '*.example.yml' -o -name '*.example.yaml' \) -delete
-
-  while IFS= read -r example_file || [[ -n "$example_file" ]]; do
-    [[ -n "$example_file" ]] || continue
-    base_name="$(basename "$example_file")"
-    live_file="$dir/${base_name/.example./.}"
-    cp "$example_file" "$live_file"
-    if [[ "$rewrite_base_url" == "true" ]]; then
-      server_key="${base_name%%.example.*}"
-      base_url="$(zenmind_release_base_url_for_server_key "$server_key" || true)"
-      if [[ -n "$base_url" ]]; then
-        zenmind_release_set_yaml_base_url "$live_file" "$base_url"
-      fi
+  while IFS= read -r registry_file || [[ -n "$registry_file" ]]; do
+    [[ -n "$registry_file" ]] || continue
+    base_name="$(basename "$registry_file")"
+    server_key="${base_name%.*}"
+    base_url="$(zenmind_release_base_url_for_server_key "$server_key" || true)"
+    if [[ -n "$base_url" ]]; then
+      zenmind_release_set_yaml_base_url "$registry_file" "$base_url"
     fi
-  done < <(find "$dir" -maxdepth 1 -type f \( -name '*.example.yml' -o -name '*.example.yaml' \) | sort)
-
-  find "$dir" -maxdepth 1 -type f \( -name '*.example.yml' -o -name '*.example.yaml' \) -delete
+  done < <(find "$dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
 }
 
 zenmind_release_remove_line_exact() {
@@ -861,34 +851,51 @@ zenmind_release_patch_runner_bundle() {
 zenmind_release_prepare_agents_bundle() {
   local version_dir="$1"
   local bundle="$2"
-  local deploy_zenmind_dir tmp_extract extracted_root
+  local deploy_zenmind_dir deploy_registries_dir tmp_extract extracted_root
   deploy_zenmind_dir="$(zenmind_release_zenmind_dir "$version_dir")"
+  deploy_registries_dir="$deploy_zenmind_dir/registries"
   rm -rf \
     "$deploy_zenmind_dir/agents" \
-    "$deploy_zenmind_dir/configs/models" \
-    "$deploy_zenmind_dir/configs/providers" \
-    "$deploy_zenmind_dir/configs/mcp-servers" \
-    "$deploy_zenmind_dir/configs/viewport-servers"
-  mkdir -p "$deploy_zenmind_dir/configs"
+    "$deploy_zenmind_dir/chats" \
+    "$deploy_zenmind_dir/owner" \
+    "$deploy_zenmind_dir/configs" \
+    "$deploy_zenmind_dir/root" \
+    "$deploy_zenmind_dir/schedules" \
+    "$deploy_zenmind_dir/skills-market" \
+    "$deploy_zenmind_dir/teams" \
+    "$deploy_zenmind_dir/registries/models" \
+    "$deploy_zenmind_dir/registries/providers" \
+    "$deploy_zenmind_dir/registries/mcp-servers" \
+    "$deploy_zenmind_dir/registries/viewport-servers"
+  mkdir -p "$deploy_registries_dir"
   tmp_extract="$(mktemp -d)"
   tar -xzf "$bundle" -C "$tmp_extract"
   extracted_root="$(find "$tmp_extract" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
   [[ -n "$extracted_root" ]] || {
     rm -rf "$tmp_extract"
-    zenmind_summary_add_fail "failed to extract agents bundle: $bundle"
+    zenmind_summary_add_fail "failed to extract zenmind data bundle: $bundle"
+    return 1
+  }
+  [[ -d "$extracted_root/registries" ]] || {
+    rm -rf "$tmp_extract"
+    zenmind_summary_add_fail "zenmind data bundle is missing registries/: $bundle"
     return 1
   }
   zenmind_release_copy_dir_if_present "$extracted_root/agents" "$deploy_zenmind_dir/agents"
-  zenmind_release_copy_dir_if_present "$extracted_root/configs/models" "$deploy_zenmind_dir/configs/models"
-  zenmind_release_copy_dir_if_present "$extracted_root/configs/providers" "$deploy_zenmind_dir/configs/providers"
-  zenmind_release_copy_dir_if_present "$extracted_root/configs/mcp-servers" "$deploy_zenmind_dir/configs/mcp-servers"
-  zenmind_release_copy_dir_if_present "$extracted_root/configs/viewport-servers" "$deploy_zenmind_dir/configs/viewport-servers"
+  zenmind_release_copy_dir_if_present "$extracted_root/chats" "$deploy_zenmind_dir/chats"
+  zenmind_release_copy_dir_if_present "$extracted_root/owner" "$deploy_zenmind_dir/owner"
+  zenmind_release_copy_dir_if_present "$extracted_root/root" "$deploy_zenmind_dir/root"
+  zenmind_release_copy_dir_if_present "$extracted_root/schedules" "$deploy_zenmind_dir/schedules"
+  zenmind_release_copy_dir_if_present "$extracted_root/skills-market" "$deploy_zenmind_dir/skills-market"
+  zenmind_release_copy_dir_if_present "$extracted_root/teams" "$deploy_zenmind_dir/teams"
+  zenmind_release_copy_dir_if_present "$extracted_root/registries/models" "$deploy_registries_dir/models"
+  zenmind_release_copy_dir_if_present "$extracted_root/registries/providers" "$deploy_registries_dir/providers"
+  zenmind_release_copy_dir_if_present "$extracted_root/registries/mcp-servers" "$deploy_registries_dir/mcp-servers"
+  zenmind_release_copy_dir_if_present "$extracted_root/registries/viewport-servers" "$deploy_registries_dir/viewport-servers"
   rm -rf "$tmp_extract"
 
-  zenmind_release_materialize_example_config_dir "$deploy_zenmind_dir/configs/models"
-  zenmind_release_materialize_example_config_dir "$deploy_zenmind_dir/configs/providers"
-  zenmind_release_materialize_example_config_dir "$deploy_zenmind_dir/configs/mcp-servers" true
-  zenmind_release_materialize_example_config_dir "$deploy_zenmind_dir/configs/viewport-servers" true
+  zenmind_release_rewrite_registry_base_urls_in_dir "$deploy_registries_dir/mcp-servers"
+  zenmind_release_rewrite_registry_base_urls_in_dir "$deploy_registries_dir/viewport-servers"
 }
 
 zenmind_release_copy_previous_state() {
@@ -922,10 +929,16 @@ zenmind_release_copy_previous_state() {
 
 zenmind_release_prepare_runner_runtime() {
   local version_dir="$1"
-  local runner_dir deploy_zenmind_dir
+  local runner_dir deploy_zenmind_dir deploy_registries_dir
   local current_agents_dir current_models_dir current_providers_dir current_mcp_servers_dir current_viewport_servers_dir
+  local old_models_dir old_providers_dir old_mcp_servers_dir old_viewport_servers_dir
   runner_dir="$(zenmind_release_service_dir "$version_dir" "agent-platform-runner")"
   deploy_zenmind_dir="$(zenmind_release_zenmind_dir "$version_dir")"
+  deploy_registries_dir="$deploy_zenmind_dir/registries"
+  old_models_dir="$deploy_zenmind_dir/configs/models"
+  old_providers_dir="$deploy_zenmind_dir/configs/providers"
+  old_mcp_servers_dir="$deploy_zenmind_dir/configs/mcp-servers"
+  old_viewport_servers_dir="$deploy_zenmind_dir/configs/viewport-servers"
 
   zenmind_release_prepare_env_file "$runner_dir"
   [[ -f "$runner_dir/configs/container-hub.yml" ]] || cp "$runner_dir/configs/container-hub.example.yml" "$runner_dir/configs/container-hub.yml"
@@ -944,25 +957,25 @@ zenmind_release_prepare_runner_runtime() {
     zenmind_release_set_env_value "$runner_dir/.env" "AGENTS_DIR" "$deploy_zenmind_dir/agents"
   fi
   current_models_dir="$(zenmind_release_current_env_value "$runner_dir/.env" "MODELS_DIR" || true)"
-  if [[ -z "$current_models_dir" || "$current_models_dir" == "./runtime/models" ]]; then
-    zenmind_release_set_env_value "$runner_dir/.env" "MODELS_DIR" "$deploy_zenmind_dir/configs/models"
+  if [[ -z "$current_models_dir" || "$current_models_dir" == "./runtime/models" || "$current_models_dir" == "$old_models_dir" ]]; then
+    zenmind_release_set_env_value "$runner_dir/.env" "MODELS_DIR" "$deploy_registries_dir/models"
   fi
   current_providers_dir="$(zenmind_release_current_env_value "$runner_dir/.env" "PROVIDERS_DIR" || true)"
-  if [[ -z "$current_providers_dir" || "$current_providers_dir" == "./runtime/providers" ]]; then
-    zenmind_release_set_env_value "$runner_dir/.env" "PROVIDERS_DIR" "$deploy_zenmind_dir/configs/providers"
+  if [[ -z "$current_providers_dir" || "$current_providers_dir" == "./runtime/providers" || "$current_providers_dir" == "$old_providers_dir" ]]; then
+    zenmind_release_set_env_value "$runner_dir/.env" "PROVIDERS_DIR" "$deploy_registries_dir/providers"
   fi
   current_mcp_servers_dir="$(zenmind_release_current_env_value "$runner_dir/.env" "MCP_SERVERS_DIR" || true)"
-  if [[ -z "$current_mcp_servers_dir" || "$current_mcp_servers_dir" == "./runtime/mcp-servers" ]]; then
-    zenmind_release_set_env_value "$runner_dir/.env" "MCP_SERVERS_DIR" "$deploy_zenmind_dir/configs/mcp-servers"
+  if [[ -z "$current_mcp_servers_dir" || "$current_mcp_servers_dir" == "./runtime/mcp-servers" || "$current_mcp_servers_dir" == "$old_mcp_servers_dir" ]]; then
+    zenmind_release_set_env_value "$runner_dir/.env" "MCP_SERVERS_DIR" "$deploy_registries_dir/mcp-servers"
   fi
   current_viewport_servers_dir="$(zenmind_release_current_env_value "$runner_dir/.env" "VIEWPORT_SERVERS_DIR" || true)"
-  if [[ -z "$current_viewport_servers_dir" || "$current_viewport_servers_dir" == "./runtime/viewport-servers" ]]; then
-    zenmind_release_set_env_value "$runner_dir/.env" "VIEWPORT_SERVERS_DIR" "$deploy_zenmind_dir/configs/viewport-servers"
+  if [[ -z "$current_viewport_servers_dir" || "$current_viewport_servers_dir" == "./runtime/viewport-servers" || "$current_viewport_servers_dir" == "$old_viewport_servers_dir" ]]; then
+    zenmind_release_set_env_value "$runner_dir/.env" "VIEWPORT_SERVERS_DIR" "$deploy_registries_dir/viewport-servers"
   fi
 
-  zenmind_release_set_yaml_enabled_false "$deploy_zenmind_dir/configs/mcp-servers/bash.yml"
-  zenmind_release_set_yaml_enabled_false "$deploy_zenmind_dir/configs/mcp-servers/database.yml"
-  zenmind_release_set_yaml_enabled_false "$deploy_zenmind_dir/configs/mcp-servers/email.yml"
+  zenmind_release_set_yaml_enabled_false "$deploy_registries_dir/mcp-servers/bash.yml"
+  zenmind_release_set_yaml_enabled_false "$deploy_registries_dir/mcp-servers/database.yml"
+  zenmind_release_set_yaml_enabled_false "$deploy_registries_dir/mcp-servers/email.yml"
 }
 
 zenmind_release_prepare_term_config() {
@@ -1273,7 +1286,7 @@ zenmind_release_prepare_version_dir() {
       rm -f "$manifest_file" "$artifacts_json"
       return 1
     }
-    if [[ "$service_name" == "zenmind-agents" ]]; then
+    if [[ "$service_name" == "zenmind-data" ]]; then
       agents_bundle="$target_path"
       continue
     fi
@@ -1285,7 +1298,7 @@ zenmind_release_prepare_version_dir() {
 
   [[ -n "$agents_bundle" ]] || {
     rm -f "$manifest_file" "$artifacts_json"
-    zenmind_summary_add_fail "manifest is missing zenmind-agents artifact"
+    zenmind_summary_add_fail "manifest is missing zenmind-data artifact"
     return 1
   }
   zenmind_release_copy_previous_state "$previous_active" "$version_dir"

@@ -131,16 +131,26 @@ Linux:
 
 ## Deploy 脚本
 
-- agent 打包入口：`./scripts/deploy/package-agents.sh`
+- zenmind data 打包入口：`./scripts/deploy/package-zenmind-data.sh`
 - 兼容入口：`./scripts/package.sh`
 - monorepo dist 收集入口：`./scripts/deploy/collect-dist.sh <version>`
-- `collect-dist.sh` 默认把收集结果写到 `./dist/<version>/`
-- `collect-dist.sh` 还会在目标目录生成 `release-manifest.json` 与 `SHA256SUMS`
+- `collect-dist.sh` 的输入固定为精确 patch 版本 `vX.Y.Z`
+- `collect-dist.sh` 默认会生成：
+  - `./dist/vX.Y/patches/vX.Y.Z/`
+  - `./dist/vX.Y/release-manifest.json`
+  - `./dist/manifest.json`
+- `./dist/index.json`
+- patch 目录内仍会生成 `release-manifest.json` 与 `SHA256SUMS`
 - `zenmind` 的发布版本单一来源是根目录 `VERSION`，格式固定为 `vX.Y.Z`
-- `package-agents.sh` 优先读取环境变量 `VERSION`，否则读取根目录 `VERSION`
-- `package-agents.sh` 仍然从根仓 `.zenmind/` 读取运行时工作区，并把归档写到 `.zenmind/dist/<version>/zenmind-agents-<version>.tar.gz`
-- `collect-dist.sh` 会从 monorepo 各项目的 `dist/` 中收集匹配版本的 tarball，也会从根仓 `.zenmind/dist/` 收集 `zenmind` agent 包
-- 历史时间戳命名的 agent 包会保留在 `.zenmind/dist/`，但不会再被 `collect-dist.sh` 收集
+- `package-zenmind-data.sh` 优先读取环境变量 `VERSION`，否则读取根目录 `VERSION`
+- `package-zenmind-data.sh` 从根仓 `.zenmind/registries.example/` 与 `.zenmind/owner.example/` 读取示例数据，并把归档写到 `.zenmind/dist/<version>/zenmind-data-<version>.tar.gz`
+- zenmind data 包内部结构统一包含 `agents/`、`chats/`、`owner/`、`registries/`、`root/`、`schedules/`、`skills-market/`、`teams/`；release 解包后的部署态 `.zenmind` 目录会同步落地这些目录
+- `agents/`、`skills-market/` 只打包正常目录和 `*.example`，不打包 `*.demo`
+- `chats/` 只打包 `*.example.jsonl` 与 `*.example/`
+- `root/` 只打包顶层 basename 带 `.example` 的文件和目录
+- `schedules/`、`teams/` 只打包正常文件与 `*.example.yml|*.example.yaml`，不打包 `*.demo.yml|*.demo.yaml`
+- `tools/` 不打包
+- `collect-dist.sh` 会从 monorepo 各项目的 `dist/` 中收集匹配版本的 tarball，也会从根仓 `.zenmind/dist/` 收集 `zenmind-data` 包
 
 ## 生成结果
 

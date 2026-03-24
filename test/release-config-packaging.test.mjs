@@ -4,8 +4,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(process.cwd(), "zenmind");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -16,194 +17,230 @@ function writeFile(filePath, content) {
   fs.writeFileSync(filePath, content, "utf8");
 }
 
-test("package-agents bundles all example configs unconditionally and preserves provider example secrets", () => {
-  const root = makeTempDir("zenmind-package-agents-");
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+test("package-zenmind-data bundles filtered zenmind data", () => {
+  const root = makeTempDir("zenmind-package-data-");
   const zenmindRepo = path.join(root, "zenmind");
   const runtimeRoot = path.join(root, ".zenmind");
-  const scriptSource = path.join(repoRoot, "scripts", "deploy", "package-agents.sh");
-  const scriptTarget = path.join(zenmindRepo, "scripts", "deploy", "package-agents.sh");
+  const scriptSource = path.join(repoRoot, "scripts", "deploy", "package-zenmind-data.sh");
+  const scriptTarget = path.join(zenmindRepo, "scripts", "deploy", "package-zenmind-data.sh");
 
   writeFile(path.join(zenmindRepo, "VERSION"), "v0.0.1\n");
   fs.mkdirSync(path.dirname(scriptTarget), { recursive: true });
   fs.copyFileSync(scriptSource, scriptTarget);
 
-  writeFile(path.join(runtimeRoot, "agents", "testAgent", "agent.yml"), [
-    "name: Test Agent",
-    "modelKey: demo-model",
-    ""
-  ].join("\n"));
-  fs.mkdirSync(path.join(runtimeRoot, "skills-market"), { recursive: true });
-  fs.mkdirSync(path.join(runtimeRoot, "teams"), { recursive: true });
-  fs.mkdirSync(path.join(runtimeRoot, "schedules"), { recursive: true });
-  fs.mkdirSync(path.join(runtimeRoot, "tools"), { recursive: true });
+  writeFile(path.join(runtimeRoot, "agents", "normalAgent", "agent.yml"), "name: Normal Agent\n");
+  writeFile(path.join(runtimeRoot, "agents", "showcase.example", "agent.yml"), "name: Example Agent\n");
+  writeFile(path.join(runtimeRoot, "agents", "skip.demo", "agent.yml"), "name: Demo Agent\n");
 
-  writeFile(path.join(runtimeRoot, "configs", "models", "demo-model.example.yml"), [
-    "key: demo-model",
-    "provider: demo-provider",
-    "protocol: OPENAI",
-    "modelId: demo-model-id",
-    ""
-  ].join("\n"));
-  writeFile(path.join(runtimeRoot, "configs", "models", "demo-model.yml"), "key: should-not-package\n");
+  writeFile(path.join(runtimeRoot, "chats", "keep.example.jsonl"), "{\"role\":\"assistant\"}\n");
+  writeFile(path.join(runtimeRoot, "chats", "skip.jsonl"), "{\"role\":\"assistant\"}\n");
+  writeFile(path.join(runtimeRoot, "chats", "thread.example", "message.jsonl"), "{\"role\":\"assistant\"}\n");
+  writeFile(path.join(runtimeRoot, "chats", "thread", "message.jsonl"), "{\"role\":\"assistant\"}\n");
 
-  writeFile(path.join(runtimeRoot, "configs", "providers", "demo-provider.example.yml"), [
-    "key: demo-provider",
-    "baseUrl: https://provider.example.test",
-    "apiKey: secret-from-example",
-    "defaultModel: demo-model-id",
-    ""
-  ].join("\n"));
-  writeFile(path.join(runtimeRoot, "configs", "providers", "demo-provider.yml"), "apiKey: should-not-package\n");
-  writeFile(path.join(runtimeRoot, "configs", "providers", "extra-provider.example.yml"), [
-    "key: extra-provider",
-    "baseUrl: https://extra-provider.example.test",
-    "apiKey: extra-secret-from-example",
-    "defaultModel: extra-model-id",
-    ""
-  ].join("\n"));
+  writeFile(path.join(runtimeRoot, "owner.example", "OWNER.md"), "name: packaged-owner\n");
+  writeFile(path.join(runtimeRoot, "owner.example", "BOOTSTRAP.md"), "bootstrap: true\n");
+  writeFile(path.join(runtimeRoot, "owner", "OWNER.md"), "name: stale-owner\n");
 
-  writeFile(path.join(runtimeRoot, "configs", "models", "extra-model.example.yml"), [
-    "key: extra-model",
-    "provider: extra-provider",
-    "protocol: OPENAI",
-    "modelId: extra-model-id",
-    ""
-  ].join("\n"));
+  writeFile(path.join(runtimeRoot, "registries.example", "models", "demo-model.yml"), "key: demo-model\n");
+  writeFile(path.join(runtimeRoot, "registries.example", "providers", "demo-provider.yml"), "apiKey: secret-from-example\n");
+  writeFile(path.join(runtimeRoot, "registries.example", "mcp-servers", "mock.yml"), "baseUrl: http://localhost:11969\n");
+  writeFile(path.join(runtimeRoot, "registries.example", "viewport-servers", "mock.yml"), "baseUrl: http://localhost:11969\n");
+  writeFile(path.join(runtimeRoot, "registries", "providers", "demo-provider.yml"), "apiKey: should-not-package\n");
 
-  writeFile(path.join(runtimeRoot, "configs", "mcp-servers", "mock.example.yml"), [
-    "serverKey: mock",
-    "baseUrl: http://localhost:11969",
-    "endpointPath: \"/mcp\"",
-    "enabled: true",
-    ""
-  ].join("\n"));
-  writeFile(path.join(runtimeRoot, "configs", "mcp-servers", "mock.yml"), "baseUrl: http://127.0.0.1:1\n");
-  writeFile(path.join(runtimeRoot, "configs", "mcp-servers", "imagine.example.yml"), [
-    "serverKey: imagine",
-    "baseUrl: http://127.0.0.1:11962",
-    "endpointPath: \"/mcp\"",
-    "enabled: true",
-    ""
-  ].join("\n"));
+  writeFile(path.join(runtimeRoot, "root", ".env.example"), "ROOT_EXAMPLE=1\n");
+  writeFile(path.join(runtimeRoot, "root", ".config.example", "settings.json"), "{ \"ok\": true }\n");
+  writeFile(path.join(runtimeRoot, "root", "skip.txt"), "skip\n");
+  writeFile(path.join(runtimeRoot, "root", ".cache"), "skip\n");
 
-  writeFile(path.join(runtimeRoot, "configs", "viewport-servers", "mock.example.yml"), [
-    "serverKey: mock",
-    "baseUrl: http://localhost:11969",
-    "endpointPath: \"/mcp\"",
-    ""
-  ].join("\n"));
-  writeFile(path.join(runtimeRoot, "configs", "viewport-servers", "mock.yml"), "baseUrl: http://127.0.0.1:2\n");
+  writeFile(path.join(runtimeRoot, "schedules", "daily.yml"), "cron: daily\n");
+  writeFile(path.join(runtimeRoot, "schedules", "daily.example.yml"), "cron: example\n");
+  writeFile(path.join(runtimeRoot, "schedules", "daily.demo.yml"), "cron: demo\n");
+  writeFile(path.join(runtimeRoot, "schedules", "weekly.yaml"), "cron: weekly\n");
 
-  execFileSync("bash", [scriptTarget, "--agents", "testAgent"], {
+  writeFile(path.join(runtimeRoot, "skills-market", "sharedSkill", "SKILL.md"), "# Shared\n");
+  writeFile(path.join(runtimeRoot, "skills-market", "sharedSkill.example", "SKILL.md"), "# Example\n");
+  writeFile(path.join(runtimeRoot, "skills-market", "sharedSkill.demo", "SKILL.md"), "# Demo\n");
+
+  writeFile(path.join(runtimeRoot, "teams", "main.yml"), "name: main\n");
+  writeFile(path.join(runtimeRoot, "teams", "main.example.yml"), "name: main example\n");
+  writeFile(path.join(runtimeRoot, "teams", "main.demo.yml"), "name: main demo\n");
+  writeFile(path.join(runtimeRoot, "teams", "backup.yaml"), "name: backup\n");
+
+  writeFile(path.join(runtimeRoot, "tools", "tool.yml"), "name: should-not-package\n");
+
+  execFileSync("bash", [scriptTarget], {
     cwd: zenmindRepo,
     env: { ...process.env, VERSION: "v0.0.1" },
     stdio: "pipe"
   });
 
-  const archivePath = path.join(runtimeRoot, "dist", "v0.0.1", "zenmind-agents-v0.0.1.tar.gz");
+  const archivePath = path.join(runtimeRoot, "dist", "v0.0.1", "zenmind-data-v0.0.1.tar.gz");
   const extractedRoot = path.join(root, "extracted");
   fs.mkdirSync(extractedRoot, { recursive: true });
   execFileSync("tar", ["-xzf", archivePath, "-C", extractedRoot]);
 
-  const packageRoot = path.join(extractedRoot, "zenmind-agents");
-  const packagedModel = path.join(packageRoot, "configs", "models", "demo-model.example.yml");
-  const packagedExtraModel = path.join(packageRoot, "configs", "models", "extra-model.example.yml");
-  const packagedProvider = path.join(packageRoot, "configs", "providers", "demo-provider.example.yml");
-  const packagedExtraProvider = path.join(packageRoot, "configs", "providers", "extra-provider.example.yml");
-  const packagedMcp = path.join(packageRoot, "configs", "mcp-servers", "mock.example.yml");
-  const packagedImagineMcp = path.join(packageRoot, "configs", "mcp-servers", "imagine.example.yml");
-  const packagedViewport = path.join(packageRoot, "configs", "viewport-servers", "mock.example.yml");
+  const packageRoot = path.join(extractedRoot, "zenmind-data");
 
-  assert.equal(fs.existsSync(packagedModel), true);
-  assert.equal(fs.existsSync(packagedExtraModel), true);
-  assert.equal(fs.existsSync(path.join(packageRoot, "configs", "models", "demo-model.yml")), false);
-  assert.equal(fs.existsSync(packagedProvider), true);
-  assert.equal(fs.existsSync(packagedExtraProvider), true);
-  assert.equal(fs.existsSync(path.join(packageRoot, "configs", "providers", "demo-provider.yml")), false);
-  assert.equal(fs.existsSync(packagedMcp), true);
-  assert.equal(fs.existsSync(packagedImagineMcp), true);
-  assert.equal(fs.existsSync(path.join(packageRoot, "configs", "mcp-servers", "mock.yml")), false);
-  assert.equal(fs.existsSync(packagedViewport), true);
-  assert.equal(fs.existsSync(path.join(packageRoot, "configs", "viewport-servers", "mock.yml")), false);
+  assert.equal(fs.existsSync(path.join(packageRoot, "agents", "normalAgent", "agent.yml")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "agents", "showcase.example", "agent.yml")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "agents", "skip.demo", "agent.yml")), false);
 
-  const providerBody = fs.readFileSync(packagedProvider, "utf8");
-  assert.match(providerBody, /apiKey: secret-from-example/);
+  assert.equal(fs.existsSync(path.join(packageRoot, "chats", "keep.example.jsonl")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "chats", "skip.jsonl")), false);
+  assert.equal(fs.existsSync(path.join(packageRoot, "chats", "thread.example", "message.jsonl")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "chats", "thread", "message.jsonl")), false);
+
+  assert.equal(fs.existsSync(path.join(packageRoot, "owner", "OWNER.md")), true);
+  assert.equal(fs.readFileSync(path.join(packageRoot, "owner", "OWNER.md"), "utf8"), "name: packaged-owner\n");
+
+  assert.equal(fs.existsSync(path.join(packageRoot, "registries", "models", "demo-model.yml")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "registries", "providers", "demo-provider.yml")), true);
+  assert.match(fs.readFileSync(path.join(packageRoot, "registries", "providers", "demo-provider.yml"), "utf8"), /secret-from-example/);
+  assert.doesNotMatch(fs.readFileSync(path.join(packageRoot, "registries", "providers", "demo-provider.yml"), "utf8"), /should-not-package/);
+
+  assert.equal(fs.existsSync(path.join(packageRoot, "root", ".env.example")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "root", ".config.example", "settings.json")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "root", "skip.txt")), false);
+  assert.equal(fs.existsSync(path.join(packageRoot, "root", ".cache")), false);
+
+  assert.equal(fs.existsSync(path.join(packageRoot, "schedules", "daily.yml")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "schedules", "daily.example.yml")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "schedules", "daily.demo.yml")), false);
+  assert.equal(fs.existsSync(path.join(packageRoot, "schedules", "weekly.yaml")), true);
+
+  assert.equal(fs.existsSync(path.join(packageRoot, "skills-market", "sharedSkill", "SKILL.md")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "skills-market", "sharedSkill.example", "SKILL.md")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "skills-market", "sharedSkill.demo", "SKILL.md")), false);
+
+  assert.equal(fs.existsSync(path.join(packageRoot, "teams", "main.yml")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "teams", "main.example.yml")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "teams", "main.demo.yml")), false);
+  assert.equal(fs.existsSync(path.join(packageRoot, "teams", "backup.yaml")), true);
+
+  assert.equal(fs.existsSync(path.join(packageRoot, "tools")), false);
 });
 
-test("release materialization turns example configs into live files and rewrites MCP URLs", () => {
-  const root = makeTempDir("zenmind-release-configs-");
-  const configRoot = path.join(root, "configs");
+test("release bundle deployment writes registries and zenmind data directories", () => {
+  const root = makeTempDir("zenmind-release-data-");
   const scriptPath = path.join(repoRoot, "scripts", "shared", "zenmind-setup-actions.sh");
+  const bundleRoot = path.join(root, "bundle", "zenmind-data");
+  const bundlePath = path.join(root, "zenmind-data-v0.0.1.tar.gz");
+  const versionRoot = path.join(root, "release", "v0.0.1");
+  const deployRoot = path.join(versionRoot, "deploy");
+  const runnerDir = path.join(deployRoot, "agent-platform-runner");
+  const deployZenmindDir = path.join(deployRoot, ".zenmind");
 
-  writeFile(path.join(configRoot, "models", "demo-model.example.yml"), "key: demo-model\nprovider: demo-provider\n");
-  writeFile(path.join(configRoot, "providers", "demo-provider.example.yml"), [
+  writeFile(path.join(bundleRoot, "agents", "testAgent", "agent.yml"), "name: Test Agent\nmodelKey: demo-model\n");
+  writeFile(path.join(bundleRoot, "chats", "keep.example.jsonl"), "{\"role\":\"assistant\"}\n");
+  writeFile(path.join(bundleRoot, "owner", "OWNER.md"), "name: deployed-owner\n");
+  writeFile(path.join(bundleRoot, "owner", "BOOTSTRAP.md"), "bootstrap: true\n");
+  writeFile(path.join(bundleRoot, "registries", "models", "demo-model.yml"), "key: demo-model\nprovider: demo-provider\n");
+  writeFile(path.join(bundleRoot, "registries", "providers", "demo-provider.yml"), [
     "key: demo-provider",
     "apiKey: secret-from-example",
     ""
   ].join("\n"));
-  writeFile(path.join(configRoot, "mcp-servers", "imagine.example.yml"), [
+  writeFile(path.join(bundleRoot, "registries", "mcp-servers", "imagine.yml"), [
     "serverKey: imagine",
     "baseUrl: http://127.0.0.1:11962",
     "endpointPath: \"/mcp\"",
     ""
   ].join("\n"));
-  writeFile(path.join(configRoot, "mcp-servers", "mock.example.yml"), [
+  writeFile(path.join(bundleRoot, "registries", "mcp-servers", "mock.yml"), [
     "serverKey: mock",
     "baseUrl: http://localhost:11969",
     "endpointPath: \"/mcp\"",
     ""
   ].join("\n"));
-  writeFile(path.join(configRoot, "viewport-servers", "mock.example.yml"), [
+  writeFile(path.join(bundleRoot, "registries", "mcp-servers", "bash.yml"), "serverKey: bash\nenabled: true\n");
+  writeFile(path.join(bundleRoot, "registries", "mcp-servers", "database.yml"), "serverKey: database\nenabled: true\n");
+  writeFile(path.join(bundleRoot, "registries", "mcp-servers", "email.yml"), "serverKey: email\nenabled: true\n");
+  writeFile(path.join(bundleRoot, "registries", "viewport-servers", "mock.yml"), [
     "serverKey: mock",
     "baseUrl: http://localhost:11969",
     "endpointPath: \"/mcp\"",
     ""
   ].join("\n"));
+  writeFile(path.join(bundleRoot, "root", ".env.example"), "ROOT_EXAMPLE=1\n");
+  writeFile(path.join(bundleRoot, "schedules", "daily.yml"), "cron: daily\n");
+  writeFile(path.join(bundleRoot, "skills-market", "sharedSkill", "SKILL.md"), "# Shared\n");
+  writeFile(path.join(bundleRoot, "teams", "main.yml"), "name: main\n");
+  execFileSync("tar", ["-czf", bundlePath, "-C", path.join(root, "bundle"), "zenmind-data"]);
 
-  writeFile(path.join(configRoot, "mcp-servers", "stale.yml"), "baseUrl: http://stale\n");
+  writeFile(path.join(runnerDir, ".env"), [
+    "AGENTS_DIR=./runtime/agents",
+    `MODELS_DIR=${path.join(deployZenmindDir, "configs", "models")}`,
+    `PROVIDERS_DIR=${path.join(deployZenmindDir, "configs", "providers")}`,
+    `MCP_SERVERS_DIR=${path.join(deployZenmindDir, "configs", "mcp-servers")}`,
+    `VIEWPORT_SERVERS_DIR=${path.join(deployZenmindDir, "configs", "viewport-servers")}`,
+    ""
+  ].join("\n"));
+  writeFile(path.join(runnerDir, "configs", "container-hub.example.yml"), "kind: example\n");
+  writeFile(path.join(runnerDir, "configs", "bash.example.yml"), "kind: example\n");
+  writeFile(path.join(runnerDir, "configs", "cors.example.yml"), "kind: example\n");
 
   execFileSync("bash", ["-lc", [
     "set -euo pipefail",
+    "zenmind_repo_root_path() { printf '%s\\n' \"$REPO_ROOT\"; }",
+    "zenmind_summary_add_fail() { printf '%s\\n' \"$*\" >&2; return 1; }",
     "source \"$SCRIPT_PATH\"",
-    "zenmind_release_materialize_example_config_dir \"$MODELS_DIR\"",
-    "zenmind_release_materialize_example_config_dir \"$PROVIDERS_DIR\"",
-    "zenmind_release_materialize_example_config_dir \"$MCP_DIR\" true",
-    "zenmind_release_materialize_example_config_dir \"$VIEWPORT_DIR\" true"
+    "zenmind_release_prepare_agents_bundle \"$VERSION_DIR\" \"$BUNDLE_PATH\"",
+    "zenmind_release_prepare_runner_runtime \"$VERSION_DIR\""
   ].join("; ")], {
     cwd: repoRoot,
     env: {
       ...process.env,
-      SCRIPT_DIR: repoRoot,
+      REPO_ROOT: root,
+      SCRIPT_DIR: root,
       SCRIPT_PATH: scriptPath,
-      MODELS_DIR: path.join(configRoot, "models"),
-      PROVIDERS_DIR: path.join(configRoot, "providers"),
-      MCP_DIR: path.join(configRoot, "mcp-servers"),
-      VIEWPORT_DIR: path.join(configRoot, "viewport-servers")
+      VERSION_DIR: versionRoot,
+      BUNDLE_PATH: bundlePath
     },
     stdio: "pipe"
   });
 
-  assert.equal(fs.existsSync(path.join(configRoot, "models", "demo-model.example.yml")), false);
-  assert.equal(fs.existsSync(path.join(configRoot, "providers", "demo-provider.example.yml")), false);
-  assert.equal(fs.existsSync(path.join(configRoot, "mcp-servers", "mock.example.yml")), false);
-  assert.equal(fs.existsSync(path.join(configRoot, "viewport-servers", "mock.example.yml")), false);
-  assert.equal(fs.existsSync(path.join(configRoot, "mcp-servers", "stale.yml")), false);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "configs")), false);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "owner", "OWNER.md")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "owner", "BOOTSTRAP.md")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "registries", "models", "demo-model.yml")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "registries", "providers", "demo-provider.yml")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "registries", "mcp-servers", "imagine.yml")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "registries", "mcp-servers", "mock.yml")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "registries", "viewport-servers", "mock.yml")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "chats", "keep.example.jsonl")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "root", ".env.example")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "schedules", "daily.yml")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "skills-market", "sharedSkill", "SKILL.md")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "teams", "main.yml")), true);
+  assert.equal(fs.existsSync(path.join(deployZenmindDir, "tools")), false);
 
-  assert.equal(fs.existsSync(path.join(configRoot, "models", "demo-model.yml")), true);
-  assert.equal(fs.existsSync(path.join(configRoot, "providers", "demo-provider.yml")), true);
-  assert.equal(fs.existsSync(path.join(configRoot, "mcp-servers", "imagine.yml")), true);
-  assert.equal(fs.existsSync(path.join(configRoot, "mcp-servers", "mock.yml")), true);
-  assert.equal(fs.existsSync(path.join(configRoot, "viewport-servers", "mock.yml")), true);
-
-  const providerBody = fs.readFileSync(path.join(configRoot, "providers", "demo-provider.yml"), "utf8");
+  const providerBody = fs.readFileSync(path.join(deployZenmindDir, "registries", "providers", "demo-provider.yml"), "utf8");
+  const ownerBody = fs.readFileSync(path.join(deployZenmindDir, "owner", "OWNER.md"), "utf8");
   assert.match(providerBody, /apiKey: secret-from-example/);
+  assert.match(ownerBody, /name: deployed-owner/);
 
-  const imagineBody = fs.readFileSync(path.join(configRoot, "mcp-servers", "imagine.yml"), "utf8");
-  const mockBody = fs.readFileSync(path.join(configRoot, "mcp-servers", "mock.yml"), "utf8");
-  const viewportMockBody = fs.readFileSync(path.join(configRoot, "viewport-servers", "mock.yml"), "utf8");
+  const imagineBody = fs.readFileSync(path.join(deployZenmindDir, "registries", "mcp-servers", "imagine.yml"), "utf8");
+  const mockBody = fs.readFileSync(path.join(deployZenmindDir, "registries", "mcp-servers", "mock.yml"), "utf8");
+  const viewportMockBody = fs.readFileSync(path.join(deployZenmindDir, "registries", "viewport-servers", "mock.yml"), "utf8");
+  const disabledBashBody = fs.readFileSync(path.join(deployZenmindDir, "registries", "mcp-servers", "bash.yml"), "utf8");
+  const disabledDatabaseBody = fs.readFileSync(path.join(deployZenmindDir, "registries", "mcp-servers", "database.yml"), "utf8");
+  const disabledEmailBody = fs.readFileSync(path.join(deployZenmindDir, "registries", "mcp-servers", "email.yml"), "utf8");
+  const runnerEnv = fs.readFileSync(path.join(runnerDir, ".env"), "utf8");
 
   assert.match(imagineBody, /baseUrl: http:\/\/mcp-server-imagine:8080/);
   assert.match(mockBody, /baseUrl: http:\/\/mcp-server-mock:8080/);
   assert.match(viewportMockBody, /baseUrl: http:\/\/mcp-server-mock:8080/);
   assert.match(mockBody, /endpointPath: "\/mcp"/);
+  assert.match(disabledBashBody, /enabled: false/);
+  assert.match(disabledDatabaseBody, /enabled: false/);
+  assert.match(disabledEmailBody, /enabled: false/);
+  assert.match(runnerEnv, new RegExp(`AGENTS_DIR=${escapeRegExp(path.join(deployZenmindDir, "agents"))}`));
+  assert.match(runnerEnv, new RegExp(`MODELS_DIR=${escapeRegExp(path.join(deployZenmindDir, "registries", "models"))}`));
+  assert.match(runnerEnv, new RegExp(`PROVIDERS_DIR=${escapeRegExp(path.join(deployZenmindDir, "registries", "providers"))}`));
+  assert.match(runnerEnv, new RegExp(`MCP_SERVERS_DIR=${escapeRegExp(path.join(deployZenmindDir, "registries", "mcp-servers"))}`));
+  assert.match(runnerEnv, new RegExp(`VIEWPORT_SERVERS_DIR=${escapeRegExp(path.join(deployZenmindDir, "registries", "viewport-servers"))}`));
 });

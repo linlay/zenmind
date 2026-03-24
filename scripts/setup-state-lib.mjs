@@ -39,7 +39,7 @@ const RELEASE_BUNDLE_REQUIREMENTS = [
   { service: "zenmind-app-server", os: "linux", runtime: "image" },
   { service: "zenmind-gateway", os: "linux", runtime: "image" },
   { service: "zenmind-voice-server", os: "linux", runtime: "image" },
-  { service: "zenmind-agents", os: "any", runtime: "runtime" }
+  { service: "zenmind-data", os: "any", runtime: "runtime" }
 ];
 
 function assert(condition, message) {
@@ -65,16 +65,16 @@ function detectArtifactDetailsFromName(fileName) {
     return {};
   }
 
-  const agentsMatch = fileName.match(/^(zenmind-agents)-(v\d+\.\d+\.\d+)\.tar\.gz$/);
-  if (agentsMatch) {
+  const zenmindDataMatch = fileName.match(/^(zenmind-data)-(v\d+\.\d+\.\d+)\.tar\.gz$/);
+  if (zenmindDataMatch) {
     return {
-      service: "zenmind-agents",
-      version: agentsMatch[2],
+      service: "zenmind-data",
+      version: zenmindDataMatch[2],
       runtime: "runtime"
     };
   }
 
-  const genericMatch = fileName.match(/^(.*?)-(v\d+\.\d+\.\d+)-(darwin|linux)-(amd64|arm64)\.tar\.gz$/);
+  const genericMatch = fileName.match(/^(.*?)-(v\d+\.\d+\.\d+)-(darwin|linux)(?:-(host))?-(amd64|arm64)\.tar\.gz$/);
   if (!genericMatch) {
     return {};
   }
@@ -142,6 +142,7 @@ function normalizeManifest(rawManifest, source = "") {
       ? rawManifest.schemaVersion
       : RELEASE_MANIFEST_SCHEMA_VERSION,
     channel: trimString(rawManifest?.channel || "stable"),
+    releaseLine: trimString(rawManifest?.releaseLine || ""),
     stackVersion,
     publishedAt: trimString(rawManifest?.publishedAt || ""),
     sourceTag: trimString(rawManifest?.sourceTag || stackVersion),
@@ -258,12 +259,12 @@ export function selectReleaseArtifacts(manifest, hostOs, hostArch) {
 
   for (const requirement of RELEASE_BUNDLE_REQUIREMENTS) {
     const desiredOs = requirement.os === "host" ? hostOs : requirement.os;
-    const desiredArch = requirement.service === "zenmind-agents" ? "" : hostArch;
+    const desiredArch = requirement.service === "zenmind-data" ? "" : hostArch;
     const artifact = manifest.artifacts.find((item) => {
       if (item.service !== requirement.service) {
         return false;
       }
-      if (requirement.service === "zenmind-agents") {
+      if (requirement.service === "zenmind-data") {
         return true;
       }
       return item.os === desiredOs && item.arch === desiredArch;

@@ -24,8 +24,7 @@ usage() {
   cat <<'EOF'
 Usage: collect-dist.sh <version>
 
-<version> must be one of:
-  vX.Y
+<version> must match:
   vX.Y.Z
 EOF
 }
@@ -46,6 +45,13 @@ is_semver() {
   [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
+release_line_for_version() {
+  local version="${1#v}"
+  local major minor patch
+  IFS='.' read -r major minor patch <<<"$version"
+  printf 'v%s.%s\n' "$major" "$minor"
+}
+
 extract_version_from_text() {
   local text="${1:-}"
   if [[ "$text" =~ (v[0-9]+\.[0-9]+\.[0-9]+) ]]; then
@@ -57,13 +63,6 @@ extract_version_from_text() {
     return 0
   fi
   return 1
-}
-
-version_key() {
-  local version="${1#v}"
-  local major minor patch
-  IFS='.' read -r major minor patch <<<"$version"
-  printf '%09d%09d%09d\n' "$major" "$minor" "$patch"
 }
 
 resolve_project_repo_root() {
@@ -88,23 +87,6 @@ resolve_project_dist_root() {
       printf '%s\n' "$(resolve_project_repo_root "$project")/dist"
       ;;
   esac
-}
-
-version_matches_input() {
-  local requested="$1"
-  local candidate="$2"
-
-  if [[ "$requested" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-    [[ "$candidate" == "$requested" ]]
-    return
-  fi
-
-  [[ "$requested" =~ ^v([0-9]+)\.([0-9]+)$ ]] || return 1
-  [[ "$candidate" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
-  local requested_mm="${requested#v}"
-  local candidate_mm="${candidate#v}"
-  candidate_mm="${candidate_mm%.*}"
-  [[ "$candidate_mm" == "$requested_mm" ]]
 }
 
 print_summary() {
@@ -135,14 +117,16 @@ if (($# != 1)); then
 fi
 
 REQUESTED_VERSION="$1"
-if [[ ! "$REQUESTED_VERSION" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+if ! is_semver "$REQUESTED_VERSION"; then
   log_error "invalid version: $REQUESTED_VERSION"
   usage
   exit 1
 fi
 
-TARGET_DIR="$TARGET_ROOT/$REQUESTED_VERSION"
-mkdir -p "$TARGET_DIR"
+RELEASE_LINE="$(release_line_for_version "$REQUESTED_VERSION")"
+PATCH_DIR="$TARGET_ROOT/$RELEASE_LINE/patches/$REQUESTED_VERSION"
+LINE_DIR="$TARGET_ROOT/$RELEASE_LINE"
+mkdir -p "$PATCH_DIR"
 
 copied=()
 skipped=()
@@ -173,16 +157,13 @@ for project in "${PROJECTS[@]}"; do
   fi
 
   matching_files=()
-  matching_versions=()
-
   for file in "${tarballs[@]}"; do
     candidate_version="$(extract_version_from_text "$(basename "$file")" 2>/dev/null || true)"
     if [[ -z "$candidate_version" ]]; then
       continue
     fi
-    if version_matches_input "$REQUESTED_VERSION" "$candidate_version"; then
+    if [[ "$candidate_version" == "$REQUESTED_VERSION" ]]; then
       matching_files+=("$file")
-      matching_versions+=("$candidate_version")
     fi
   done
 
@@ -191,31 +172,7 @@ for project in "${PROJECTS[@]}"; do
     continue
   fi
 
-  selected_files=()
-
-  if [[ "$REQUESTED_VERSION" =~ ^v[0-9]+\.[0-9]+$ ]]; then
-    best_version=""
-    best_key=""
-    idx=0
-    for candidate_version in "${matching_versions[@]}"; do
-      current_key="$(version_key "$candidate_version")"
-      if [[ -z "$best_key" || "$current_key" > "$best_key" ]]; then
-        best_key="$current_key"
-        best_version="$candidate_version"
-      fi
-      idx=$((idx + 1))
-    done
-
-    idx=0
-    for file in "${matching_files[@]}"; do
-      if [[ "${matching_versions[$idx]}" == "$best_version" ]]; then
-        selected_files+=("$file")
-      fi
-      idx=$((idx + 1))
-    done
-  else
-    selected_files=("${matching_files[@]}")
-  fi
+  selected_files=("${matching_files[@]}")
 
   if ((${#selected_files[@]} == 0)); then
     skipped+=("$project: matched version but no selectable files remained")
@@ -223,7 +180,7 @@ for project in "${PROJECTS[@]}"; do
   fi
 
   for file in "${selected_files[@]}"; do
-    cp -f "$file" "$TARGET_DIR/"
+    cp -f "$file" "$PATCH_DIR/"
     copied+=("$project -> $(basename "$file")")
     copied_count=$((copied_count + 1))
     log_info "copied $(basename "$file") from $project"
@@ -232,9 +189,29 @@ done
 
 if ((copied_count > 0)); then
   node "${SCRIPT_DIR}/generate-release-manifest.mjs" \
-    --dist-dir "$TARGET_DIR" \
-    --version "$REQUESTED_VERSION"
-  log_info "generated release-manifest.json and SHA256SUMS"
+    --dist-dir "$PATCH_DIR" \
+    --version "$REQUESTED_VERSION" \
+    --release-line "$RELEASE_LINE"
+  node "${SCRIPT_DIR}/generate-release-manifest.mjs" \
+    --dist-dir "$PATCH_DIR" \
+    --version "$REQUESTED_VERSION" \
+    --release-line "$RELEASE_LINE" \
+    --artifact-base-path "patches/$REQUESTED_VERSION" \
+    --output "$LINE_DIR/release-manifest.json" \
+    --no-sums
+  node "${SCRIPT_DIR}/generate-release-manifest.mjs" \
+    --dist-dir "$PATCH_DIR" \
+    --version "$REQUESTED_VERSION" \
+    --release-line "$RELEASE_LINE" \
+    --artifact-base-path "$RELEASE_LINE/patches/$REQUESTED_VERSION" \
+    --output "$TARGET_ROOT/manifest.json" \
+    --no-sums
+  node "${SCRIPT_DIR}/generate-release-index.mjs" \
+    --releases-root "$TARGET_ROOT" \
+    --stable-release-line "$RELEASE_LINE" \
+    --stable-version "$REQUESTED_VERSION" \
+    --output "$TARGET_ROOT/index.json"
+  log_info "generated patch manifest, release-line manifest, manifest.json, index.json, and SHA256SUMS"
 fi
 
 print_summary "$copied_count"

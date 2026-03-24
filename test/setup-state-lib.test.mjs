@@ -89,7 +89,7 @@ test("selectReleaseArtifacts chooses host and linux bundle mix", () => {
       { service: "zenmind-app-server", os: "linux", arch: "arm64", runtime: "image", fileName: "zenmind-app-server-v0.2.0-linux-arm64.tar.gz" },
       { service: "zenmind-gateway", os: "linux", arch: "arm64", runtime: "image", fileName: "zenmind-gateway-v0.2.0-linux-arm64.tar.gz" },
       { service: "zenmind-voice-server", os: "linux", arch: "arm64", runtime: "image", fileName: "zenmind-voice-server-v0.2.0-linux-arm64.tar.gz" },
-      { service: "zenmind-agents", runtime: "runtime", fileName: "zenmind-agents-v0.2.0.tar.gz" }
+      { service: "zenmind-data", runtime: "runtime", fileName: "zenmind-data-v0.2.0.tar.gz" }
     ]
   };
 
@@ -97,7 +97,7 @@ test("selectReleaseArtifacts chooses host and linux bundle mix", () => {
   assert.equal(artifacts.length, 10);
   assert.equal(artifacts[0].service, "agent-container-hub");
   assert.equal(artifacts[1].service, "term-webclient");
-  assert.equal(artifacts.at(-1).service, "zenmind-agents");
+  assert.equal(artifacts.at(-1).service, "zenmind-data");
 });
 
 test("resolveArtifactSource keeps local artifacts relative to manifest file", () => {
@@ -112,4 +112,18 @@ test("resolveArtifactSource keeps local artifacts relative to manifest file", ()
   const resolved = resolveArtifactSource(manifest, artifact);
   assert.equal(resolved.kind, "file");
   assert.equal(resolved.source, "/tmp/dist/v0.2.0/zenmind-gateway-v0.2.0-linux-arm64.tar.gz");
+});
+
+test("resolveArtifactSource keeps nested release-line artifacts relative to manifest file", () => {
+  const manifest = {
+    __source: "/tmp/releases/v0.2/release-manifest.json"
+  };
+  const artifact = {
+    service: "zenmind-gateway",
+    url: "patches/v0.2.3/zenmind-gateway-v0.2.3-linux-arm64.tar.gz"
+  };
+
+  const resolved = resolveArtifactSource(manifest, artifact);
+  assert.equal(resolved.kind, "file");
+  assert.equal(resolved.source, "/tmp/releases/v0.2/patches/v0.2.3/zenmind-gateway-v0.2.3-linux-arm64.tar.gz");
 });

@@ -231,17 +231,44 @@ Windows 主系统不再支持直接安装；请进入 WSL 后使用 `setup-win-w
 
 发布相关脚本：
 
-- `./scripts/deploy/package-agents.sh`
+- `./scripts/deploy/package-zenmind-data.sh`
+- `./scripts/package.sh`
 - `./scripts/deploy/collect-dist.sh <version>`
 
-`collect-dist.sh` 会把各项目 tarball 收集到：
+`package-zenmind-data.sh` 优先读取环境变量 `VERSION`，否则读取根目录 `VERSION`。它会从根仓 `.zenmind/registries.example/` 和 `.zenmind/owner.example/` 读取示例数据，并按固定规则打包 `.zenmind` 数据到 `.zenmind/dist/<version>/zenmind-data-<version>.tar.gz`。
 
-- `dist/<version>/`
+zenmind data 包内部与 release 部署态统一使用这些目录名：
 
-并额外生成：
+- `agents/`
+- `chats/`
+- `owner/`
+- `registries/`
+- `root/`
+- `schedules/`
+- `skills-market/`
+- `teams/`
 
-- `dist/<version>/release-manifest.json`
-- `dist/<version>/SHA256SUMS`
+其中：
+
+- `agents/`、`skills-market/` 只包含正常目录和 `*.example`，不包含 `*.demo`
+- `chats/` 只包含 `*.example.jsonl` 与 `*.example/`
+- `root/` 只包含顶层 basename 带 `.example` 的文件或目录
+- `schedules/`、`teams/` 只包含正常文件与 `*.example.yml|*.example.yaml`，不包含 `*.demo.yml|*.demo.yaml`
+- `tools/` 不打包
+
+`collect-dist.sh` 现在以精确 patch 版本 `vX.Y.Z` 作为输入，并生成两层发布结构：
+
+- `dist/vX.Y/patches/vX.Y.Z/`
+- `dist/vX.Y/release-manifest.json`
+- `dist/manifest.json`
+- `dist/index.json`
+
+其中：
+
+- `patches/vX.Y.Z/` 是不可变精确发布目录
+- `vX.Y/release-manifest.json` 指向该功能线当前最新 patch
+- `manifest.json` 指向当前全局最新稳定版
+- `index.json` 提供官网可读取的 release line 索引
 
 ## 参考文档
 
