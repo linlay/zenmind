@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   applyProfile,
+  applyToRelease,
   getDefaultProfile,
   loadProfile
 } from "../scripts/zenmind-config-lib.mjs";
@@ -35,6 +36,27 @@ function makeWorkspace() {
     "utf8"
   );
   return { root, workspaceRoot, reposRoot };
+}
+
+function makeReleaseVersionDir(root, version = "v1.2.3") {
+  const versionDir = path.join(root, "zenmind", "release", version);
+  const deployDir = path.join(versionDir, "deploy");
+  const envFiles = new Map([
+    ["zenmind-app-server", "FRONTEND_PORT=10000\nAUTH_ISSUER=https://old.example.com\nAUTH_ADMIN_PASSWORD_BCRYPT=old-admin\nAUTH_APP_MASTER_PASSWORD_BCRYPT=old-master\n"],
+    ["pan-webclient", "NGINX_PORT=10001\nWEB_SESSION_SECRET=old-secret\nAUTH_PASSWORD_HASH_BCRYPT=old-pan\n"],
+    ["term-webclient", "FRONTEND_PORT=10002\nAUTH_PASSWORD_HASH_BCRYPT=old-term\nAPP_AUTH_ISSUER=https://old.example.com\n"],
+    ["zenmind-gateway", "GATEWAY_PORT=10003\n"],
+    ["agent-platform-runner", "HOST_PORT=10004\nAGENT_AUTH_ISSUER=https://old.example.com\n"],
+    ["agent-container-hub", "BIND_ADDR=127.0.0.1:10005\nAUTH_TOKEN=old-token\n"]
+  ]);
+
+  for (const [service, content] of envFiles.entries()) {
+    const serviceDir = path.join(deployDir, service);
+    fs.mkdirSync(path.join(serviceDir, "configs"), { recursive: true });
+    fs.writeFileSync(path.join(serviceDir, ".env.example"), content, "utf8");
+  }
+
+  return versionDir;
 }
 
 function buildConfiguredProfile() {
@@ -297,4 +319,85 @@ test("app routes still follow service enablement without separate app switches",
   assert.match(gatewayNginx, /location \^~ \/term\/ \{ return 404; \}/);
   assert.match(gatewayNginx, /location = \/appterm \{ return 301 \/appterm\/; \}/);
   assert.match(gatewayNginx, /location \^~ \/appterm\/ \{ proxy_pass http:\/\/term_webclient_frontend; \}/);
+});
+
+test("applyToRelease writes local issuer and enabled metadata for release bundles", () => {
+  const { root, workspaceRoot } = makeWorkspace();
+  const versionDir = makeReleaseVersionDir(root, "v2.0.0");
+  const profile = buildConfiguredProfile();
+  profile.website.domain = "website.example.com";
+  profile.gateway.listenPort = 12945;
+  profile.admin.frontendPort = 12950;
+  profile.pan.frontendPort = 12946;
+  profile.pan.webSessionSecret = "session-local";
+  profile.term.frontendPort = 12947;
+  profile.agentPlatformRunner.hostPort = 12949;
+  profile.containerHub.port = 12960;
+  profile.pan.enabled = false;
+  profile.term.enabled = false;
+  profile.mcp.enabled = false;
+  profile.agentPlatformRunner.enabled = false;
+  profile.containerHub.enabled = false;
+
+  const result = applyToRelease({
+    profile,
+    workspaceRoot,
+    versionDir,
+    bcryptScriptPath: "/bin/echo"
+  });
+
+  const appEnv = fs.readFileSync(path.join(versionDir, "deploy", "zenmind-app-server", ".env"), "utf8");
+  const panEnv = fs.readFileSync(path.join(versionDir, "deploy", "pan-webclient", ".env"), "utf8");
+  const termEnv = fs.readFileSync(path.join(versionDir, "deploy", "term-webclient", ".env"), "utf8");
+  const gatewayEnv = fs.readFileSync(path.join(versionDir, "deploy", "zenmind-gateway", ".env"), "utf8");
+  const runnerEnv = fs.readFileSync(path.join(versionDir, "deploy", "agent-platform-runner", ".env"), "utf8");
+  const runnerHubConfig = fs.readFileSync(path.join(versionDir, "deploy", "agent-platform-runner", "configs", "container-hub.yml"), "utf8");
+  const hubEnv = fs.readFileSync(path.join(versionDir, "deploy", "agent-container-hub", ".env"), "utf8");
+
+  assert.equal(result.meta.releaseIssuer, "http://127.0.0.1:12945");
+  assert.deepEqual(result.meta.enabled, {
+    admin: true,
+    pan: false,
+    term: false,
+    mcp: false,
+    runner: false,
+    containerHub: false
+  });
+  assert.match(appEnv, /FRONTEND_PORT=12950/);
+  assert.match(appEnv, /AUTH_ISSUER=http:\/\/127\.0\.0\.1:12945/);
+  assert.match(appEnv, /AUTH_ADMIN_PASSWORD_BCRYPT='\$2y\$10/);
+  assert.match(appEnv, /AUTH_APP_MASTER_PASSWORD_BCRYPT='\$2y\$10/);
+  assert.match(panEnv, /NGINX_PORT=12946/);
+  assert.match(panEnv, /WEB_SESSION_SECRET=session-local/);
+  assert.match(termEnv, /FRONTEND_PORT=12947/);
+  assert.match(termEnv, /APP_AUTH_ISSUER=http:\/\/127\.0\.0\.1:12945/);
+  assert.match(gatewayEnv, /GATEWAY_PORT=12945/);
+  assert.match(runnerEnv, /HOST_PORT=12949/);
+  assert.match(runnerEnv, /AGENT_AUTH_ISSUER=http:\/\/127\.0\.0\.1:12945/);
+  assert.match(runnerHubConfig, /enabled: false/);
+  assert.match(runnerHubConfig, /base-url: http:\/\/host\.docker\.internal:12960/);
+  assert.match(hubEnv, /BIND_ADDR=127\.0\.0\.1:12960/);
+  assert.match(hubEnv, /AUTH_TOKEN=container-hub-token/);
+});
+
+test("applyToRelease uses https issuer for real domains", () => {
+  const { root, workspaceRoot } = makeWorkspace();
+  const versionDir = makeReleaseVersionDir(root, "v2.1.0");
+  const profile = buildConfiguredProfile();
+  profile.website.domain = "app.zenmind.cc";
+
+  applyToRelease({
+    profile,
+    workspaceRoot,
+    versionDir,
+    bcryptScriptPath: "/bin/echo"
+  });
+
+  const appEnv = fs.readFileSync(path.join(versionDir, "deploy", "zenmind-app-server", ".env"), "utf8");
+  const termEnv = fs.readFileSync(path.join(versionDir, "deploy", "term-webclient", ".env"), "utf8");
+  const runnerEnv = fs.readFileSync(path.join(versionDir, "deploy", "agent-platform-runner", ".env"), "utf8");
+
+  assert.match(appEnv, /AUTH_ISSUER=https:\/\/app\.zenmind\.cc/);
+  assert.match(termEnv, /APP_AUTH_ISSUER=https:\/\/app\.zenmind\.cc/);
+  assert.match(runnerEnv, /AGENT_AUTH_ISSUER=https:\/\/app\.zenmind\.cc/);
 });

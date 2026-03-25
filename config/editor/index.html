@@ -18,7 +18,7 @@
           <p class="lede">本地 HTML 可直接双击打开并维护精简 JSON。日常只配核心项，端口和低频参数都收进高级选项。</p>
         </div>
 
-        <nav class="project-nav" aria-label="项目导航">
+        <nav class="project-nav" aria-label="项目导航" data-editor-only>
           <button type="button" class="nav-item is-active" data-select-view="global">
             <span class="nav-title">全局</span>
             <span class="nav-meta">站点域名、Tunnel 与 Gateway。</span>
@@ -121,7 +121,22 @@
           </div>
         </header>
 
-        <section class="dashboard">
+        <section class="path-card">
+          <div>
+            <p class="eyebrow">Save Target</p>
+            <h3>配置文件位置</h3>
+          </div>
+          <div class="status-row">
+            <span>建议保存路径</span>
+            <strong id="save-target-path">zenmind.profile.local.json</strong>
+          </div>
+          <p id="save-path-note" class="status-note">支持直接保存的浏览器会尽量沿用当前文件；否则会下载同名 JSON 作为兜底。</p>
+          <div class="actions">
+            <button id="save-target-file" type="button" class="accent">保存到此路径</button>
+          </div>
+        </section>
+
+        <section class="dashboard" data-editor-only>
           <div class="metric">
             <span>站点入口</span>
             <strong id="metric-origin">-</strong>
@@ -136,7 +151,7 @@
           </div>
         </section>
 
-        <section class="status-card">
+        <section class="status-card" data-editor-only>
           <p class="eyebrow">Managed Products</p>
           <div class="status-row">
             <span>镜像产品</span>
@@ -150,6 +165,59 @@
         </section>
 
         <form id="config-form" class="workspace">
+          <section class="view-panel wizard-panel" id="wizard-panel" data-view="wizard" hidden>
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Setup Guide</p>
+                <h3>ZenMind 配置向导</h3>
+                <p class="panel-intro">先填好首次安装必需项，保存后即可回到终端继续安装；完整编辑器会保留在下一步。</p>
+              </div>
+            </div>
+
+            <div class="wizard-grid">
+              <div class="field-card" data-field-label="Admin 登录明文">
+                <label class="field-label" for="wizard-admin-password">管理端密码</label>
+                <p class="field-description">安装向导的必填项。页面只暂存明文，保存时写入 bcrypt。</p>
+                <input id="wizard-admin-password" type="password" autocomplete="new-password" data-bcrypt-target="admin.webPasswordBcrypt" data-sensitive="true" data-sensitive-path="admin.webPasswordBcrypt">
+                <p class="field-description" data-hash-status-for="admin.webPasswordBcrypt">输入明文后会立即转换成 bcrypt，JSON 只保存 hash。</p>
+              </div>
+
+              <div class="field-card" data-field-label="App Master 明文">
+                <label class="field-label" for="wizard-app-master-password">应用主密码</label>
+                <p class="field-description">安装向导的必填项，用于 App 主凭据。</p>
+                <input id="wizard-app-master-password" type="password" autocomplete="new-password" data-bcrypt-target="admin.appMasterPasswordBcrypt" data-sensitive="true" data-sensitive-path="admin.appMasterPasswordBcrypt">
+                <p class="field-description" data-hash-status-for="admin.appMasterPasswordBcrypt">输入明文后会立即转换成 bcrypt，JSON 只保存 hash。</p>
+              </div>
+
+              <div class="field-card" data-field-label="Pan 登录明文">
+                <label class="field-label" for="wizard-pan-password">网盘密码</label>
+                <p class="field-description">可选项，默认保持启用时建议一并设置。</p>
+                <input id="wizard-pan-password" type="password" autocomplete="new-password" data-bcrypt-target="pan.webPasswordBcrypt" data-sensitive="true" data-sensitive-path="pan.webPasswordBcrypt">
+                <p class="field-description" data-hash-status-for="pan.webPasswordBcrypt">输入明文后会立即转换成 bcrypt，JSON 只保存 hash。</p>
+              </div>
+
+              <div class="field-card" data-field-label="Term 登录明文">
+                <label class="field-label" for="wizard-term-password">终端密码</label>
+                <p class="field-description">可选项，可在完整编辑器里稍后再改。</p>
+                <input id="wizard-term-password" type="password" autocomplete="new-password" data-bcrypt-target="term.webPasswordBcrypt" data-sensitive="true" data-sensitive-path="term.webPasswordBcrypt">
+                <p class="field-description" data-hash-status-for="term.webPasswordBcrypt">输入明文后会立即转换成 bcrypt，JSON 只保存 hash。</p>
+              </div>
+
+              <div class="field-card field-card-wide">
+                <label class="field-label" for="wizard-domain">域名</label>
+                <p class="field-description">本地安装可先留默认值，后续再切到完整编辑器补真实域名。</p>
+                <div class="prefix-input">
+                  <span>https://</span>
+                  <input id="wizard-domain" name="website.domain" type="text" autocomplete="off">
+                </div>
+              </div>
+            </div>
+
+            <div class="wizard-actions">
+              <button id="wizard-save" type="button" class="solid">保存配置并继续安装</button>
+            </div>
+          </section>
+
           <section class="view-panel" id="section-global" data-view="global">
             <div class="panel-head">
               <div>

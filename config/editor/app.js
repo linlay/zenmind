@@ -58,6 +58,8 @@ const PROJECTS = {
 };
 
 const BCRYPT_SALT_ROUNDS = 10;
+const params = new URLSearchParams(window.location.search);
+const requestedMode = params.get("mode") === "wizard" ? "wizard" : "editor";
 
 const form = document.querySelector("#config-form");
 const fileInput = document.querySelector("#file-input");
@@ -71,6 +73,11 @@ const copyDialogTitle = document.querySelector("#copy-dialog-title");
 const copyDialogDescription = document.querySelector("#copy-dialog-description");
 const copySourceList = document.querySelector("#copy-source-list");
 const copyCloseButton = document.querySelector("[data-copy-close]");
+const saveTargetPath = document.querySelector("#save-target-path");
+const savePathNote = document.querySelector("#save-path-note");
+const saveTargetButton = document.querySelector("#save-target-file");
+const wizardPanel = document.querySelector("#wizard-panel");
+const wizardSaveButton = document.querySelector("#wizard-save");
 const namedFields = Array.from(form.querySelectorAll("[name]"));
 const passwordFields = Array.from(form.querySelectorAll("[data-bcrypt-target]"));
 const sensitiveFields = Array.from(form.querySelectorAll("[data-sensitive='true']"));
@@ -79,6 +86,9 @@ const navToggles = Array.from(document.querySelectorAll("[data-project-toggle]")
 const viewPanels = Array.from(document.querySelectorAll(".view-panel"));
 const advancedButtons = Array.from(document.querySelectorAll("[data-advanced-toggle]"));
 const hashStatusNodes = Array.from(document.querySelectorAll("[data-hash-status-for]"));
+const editorOnlyNodes = Array.from(document.querySelectorAll("[data-editor-only]"));
+
+const saveTarget = resolveSaveTarget(params.get("save-path"));
 
 let state = normalizeProfile(DEFAULT_PROFILE);
 let plainPasswordState = {};
@@ -87,10 +97,33 @@ let dirty = false;
 let selectedView = "global";
 let copyTargetPath = null;
 let copyDialogFallbackOpen = false;
+let activeMode = "editor";
+let wizardCompleted = requestedMode !== "wizard";
 const expandedAdvanced = new Set();
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function resolveSaveTarget(rawValue) {
+  const trimmed = String(rawValue || "").trim();
+  if (!trimmed) {
+    return {
+      path: "zenmind.profile.local.json",
+      suggestedName: "zenmind.profile.local.json",
+      isSuggested: false
+    };
+  }
+
+  const normalized = trimmed.endsWith(".json")
+    ? trimmed
+    : `${trimmed.replace(/\/+$/, "")}/zenmind.profile.local.json`;
+  const parts = normalized.split("/");
+  return {
+    path: normalized,
+    suggestedName: parts.at(-1) || "zenmind.profile.local.json",
+    isSuggested: true
+  };
 }
 
 function deepMerge(base, override) {
@@ -373,6 +406,50 @@ function deriveOrigin(domain) {
   return domain ? `https://${domain}` : "-";
 }
 
+function profileNeedsWizard(profile) {
+  return !String(profile?.admin?.webPasswordBcrypt || "").trim()
+    || !String(profile?.admin?.appMasterPasswordBcrypt || "").trim();
+}
+
+function describeSaveTarget() {
+  if (saveTargetPath) {
+    saveTargetPath.textContent = saveTarget.path;
+  }
+  if (savePathNote) {
+    savePathNote.textContent = saveTarget.isSuggested
+      ? "支持 File System Access API 的浏览器会沿用当前文件或建议同名保存；不支持时会下载同名 JSON，请移动到上面的路径。"
+      : "未通过 URL 指定保存路径时，会默认保存为 zenmind.profile.local.json。";
+  }
+}
+
+function setMode(mode) {
+  activeMode = mode;
+  document.body.dataset.mode = mode;
+  if (wizardPanel) {
+    wizardPanel.hidden = mode !== "wizard";
+  }
+  for (const node of editorOnlyNodes) {
+    node.hidden = mode === "wizard";
+  }
+  for (const panel of viewPanels) {
+    if (panel === wizardPanel) {
+      continue;
+    }
+    panel.hidden = mode === "wizard";
+  }
+}
+
+function syncModeWithState({ forceEditor = false } = {}) {
+  if (forceEditor) {
+    wizardCompleted = true;
+  }
+  if (requestedMode === "wizard" && !wizardCompleted && profileNeedsWizard(state)) {
+    setMode("wizard");
+    return;
+  }
+  setMode("editor");
+}
+
 function getFieldElement(name) {
   return namedFields.find((element) => element.name === name) || null;
 }
@@ -493,6 +570,7 @@ function syncUi() {
   updatePanels();
   updateAdvancedSections();
   updateCopyButtons();
+  describeSaveTarget();
 }
 
 function renderProfile(profile, { resetPlainPasswords = false } = {}) {
@@ -504,6 +582,7 @@ function renderProfile(profile, { resetPlainPasswords = false } = {}) {
     renderFieldValue(element, getDeep(state, element.name));
   }
   syncUi();
+  syncModeWithState();
 }
 
 function markDirty(nextDirty) {
@@ -543,6 +622,27 @@ function generateSecret() {
     return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
   }
   return Array.from({ length: 48 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+}
+
+function ensureGeneratedSecrets() {
+  if (state.pan.enabled && !String(state.pan.webSessionSecret || "").trim()) {
+    state.pan.webSessionSecret = generateSecret();
+  }
+}
+
+function validateWizardBeforeSave() {
+  ensureGeneratedSecrets();
+  if (!String(state.admin.webPasswordBcrypt || "").trim()) {
+    alert("请先填写管理端密码。");
+    getPasswordField("admin.webPasswordBcrypt")?.focus();
+    return false;
+  }
+  if (!String(state.admin.appMasterPasswordBcrypt || "").trim()) {
+    alert("请先填写应用主密码。");
+    getPasswordField("admin.appMasterPasswordBcrypt")?.focus();
+    return false;
+  }
+  return true;
 }
 
 function setProjectEnabled(projectKey, enabled) {
@@ -789,23 +889,62 @@ fileInput.addEventListener("change", async (event) => {
   fileInput.value = "";
 });
 
-document.querySelector("#export-json").addEventListener("click", () => {
+function exportJsonFile() {
+  ensureGeneratedSecrets();
   const blob = new Blob([`${JSON.stringify(serializeProfile(state), null, 2)}\n`], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = "zenmind.profile.local.json";
+  anchor.download = saveTarget.suggestedName;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+document.querySelector("#export-json").addEventListener("click", () => {
+  exportJsonFile();
 });
 
 async function saveToHandle(handle) {
+  ensureGeneratedSecrets();
   const writable = await handle.createWritable();
   await writable.write(`${JSON.stringify(serializeProfile(state), null, 2)}\n`);
   await writable.close();
   fileHandle = handle;
-  fileStatus.textContent = handle.name;
+  fileStatus.textContent = saveTarget.isSuggested ? `${handle.name}（目标: ${saveTarget.path}）` : handle.name;
   markDirty(false);
+}
+
+async function persistProfile({ fromWizard = false } = {}) {
+  try {
+    if (fromWizard && !validateWizardBeforeSave()) {
+      return false;
+    }
+
+    if (fileHandle) {
+      await saveToHandle(fileHandle);
+    } else if (window.showSaveFilePicker) {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: saveTarget.suggestedName,
+        types: [{ description: "JSON", accept: { "application/json": [".json"] } }]
+      });
+      await saveToHandle(handle);
+    } else {
+      exportJsonFile();
+      fileStatus.textContent = saveTarget.isSuggested ? `${saveTarget.path}（下载导出）` : "zenmind.profile.local.json（下载导出）";
+      markDirty(false);
+    }
+
+    if (fromWizard) {
+      syncModeWithState({ forceEditor: true });
+      setSelectedView("global");
+    }
+    return true;
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      console.error(error);
+    }
+    return false;
+  }
 }
 
 document.querySelector("#open-file").addEventListener("click", async () => {
@@ -834,26 +973,15 @@ document.querySelector("#open-file").addEventListener("click", async () => {
 });
 
 document.querySelector("#save-file").addEventListener("click", async () => {
-  try {
-    if (fileHandle) {
-      await saveToHandle(fileHandle);
-      return;
-    }
-    if (window.showSaveFilePicker) {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: "zenmind.profile.local.json",
-        types: [{ description: "JSON", accept: { "application/json": [".json"] } }]
-      });
-      await saveToHandle(handle);
-      return;
-    }
-    document.querySelector("#export-json").click();
-    markDirty(false);
-  } catch (error) {
-    if (error?.name !== "AbortError") {
-      console.error(error);
-    }
-  }
+  await persistProfile();
+});
+
+saveTargetButton?.addEventListener("click", async () => {
+  await persistProfile({ fromWizard: activeMode === "wizard" });
+});
+
+wizardSaveButton?.addEventListener("click", async () => {
+  await persistProfile({ fromWizard: true });
 });
 
 renderProfile(DEFAULT_PROFILE, { resetPlainPasswords: true });

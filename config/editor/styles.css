@@ -224,6 +224,7 @@ textarea {
 
 .hero,
 .dashboard,
+.path-card,
 .view-panel,
 .copy-dialog-card {
   background: var(--panel);
@@ -237,6 +238,18 @@ textarea {
   flex-direction: column;
   gap: 16px;
   padding: 20px 22px;
+}
+
+.path-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 18px 22px;
+}
+
+.path-card h3 {
+  margin: 0;
+  font-size: 1.08rem;
 }
 
 .hero-note {
@@ -369,6 +382,18 @@ button {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.wizard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.wizard-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 16px;
 }
 
 .field-card,
@@ -597,7 +622,8 @@ button:focus {
   }
 
   .dashboard,
-  .field-grid {
+  .field-grid,
+  .wizard-grid {
     grid-template-columns: 1fr;
   }
 

@@ -1126,7 +1126,8 @@ zenmind_release_verify_mcp() {
 }
 
 zenmind_release_verify_runner_agents() {
-  local url="http://127.0.0.1:11949/api/agents"
+  local runner_port="$1"
+  local url="http://127.0.0.1:${runner_port}/api/agents"
   local response
   local attempt
   for attempt in $(seq 1 20); do
@@ -1141,9 +1142,206 @@ zenmind_release_verify_runner_agents() {
   return 1
 }
 
+zenmind_current_release_version_dir() {
+  local state_file
+  state_file="$(mktemp)"
+  if ! zenmind_resolve_or_bootstrap_state_to_file "$state_file"; then
+    rm -f "$state_file"
+    return 1
+  fi
+  zenmind_json_get "$state_file" "release.activeVersionDir"
+  rm -f "$state_file"
+}
+
+zenmind_url_encode() {
+  node --input-type=module - "$1" <<'NODE'
+process.stdout.write(encodeURIComponent(process.argv[2] || ""));
+NODE
+}
+
+zenmind_config_editor_url() {
+  local mode="${1:-editor}"
+  local save_target="${2:-$(zenmind_profile_path)}"
+  local editor_path encoded_target
+  editor_path="${SCRIPT_DIR}/config/editor/index.html"
+  encoded_target="$(zenmind_url_encode "$save_target")"
+  printf 'file://%s?mode=%s&save-path=%s\n' "$editor_path" "$mode" "$encoded_target"
+}
+
+zenmind_open_browser_url() {
+  local url="$1"
+  case "${SETUP_RUNTIME_ENV:-$ZENMIND_OS}" in
+    mac)
+      command -v open >/dev/null 2>&1 && open "$url" >/dev/null 2>&1
+      ;;
+    wsl)
+      if command -v wslview >/dev/null 2>&1; then
+        wslview "$url" >/dev/null 2>&1
+      elif command -v explorer.exe >/dev/null 2>&1; then
+        explorer.exe "$url" >/dev/null 2>&1
+      fi
+      ;;
+    linux)
+      command -v xdg-open >/dev/null 2>&1 && xdg-open "$url" >/dev/null 2>&1
+      ;;
+  esac
+}
+
+zenmind_open_config_editor() {
+  local mode="${1:-editor}"
+  local save_target="${2:-$(zenmind_profile_path)}"
+  local url
+  url="$(zenmind_config_editor_url "$mode" "$save_target")"
+  zenmind_summary_add_ok "config editor ready: ${SCRIPT_DIR}/config/editor/index.html"
+  zenmind_summary_add_ok "aggregate JSON path: $(zenmind_profile_path)"
+  zenmind_open_browser_url "$url" || zenmind_summary_add_warn "failed to auto-open config editor"
+}
+
+zenmind_profile_has_passwords() {
+  local profile_path="$1"
+  node --input-type=module - "$profile_path" <<'NODE'
+import fs from "node:fs";
+
+const profilePath = process.argv[2];
+if (!fs.existsSync(profilePath)) {
+  process.exit(1);
+}
+const profile = JSON.parse(fs.readFileSync(profilePath, "utf8"));
+const adminWeb = String(profile?.admin?.webPasswordBcrypt || "").trim();
+const appMaster = String(profile?.admin?.appMasterPasswordBcrypt || "").trim();
+if (!adminWeb || !appMaster) {
+  process.exit(1);
+}
+NODE
+}
+
+zenmind_release_apply_profile_to_version() {
+  local version_dir="$1"
+  if node "${SCRIPT_DIR}/scripts/apply-release-config.mjs" --workspace-root "$SCRIPT_DIR" --profile "$(zenmind_profile_path)" --version-dir "$version_dir"; then
+    zenmind_summary_add_ok "applied profile to release bundle: ${version_dir}"
+  else
+    zenmind_summary_add_fail "failed to apply profile to release bundle: ${version_dir}"
+    return 1
+  fi
+}
+
+zenmind_release_profile_enabled() {
+  local dotted_path="$1"
+  local default_value="$2"
+  local profile_path
+  profile_path="$(zenmind_profile_path)"
+  if [[ ! -f "$profile_path" ]]; then
+    printf '%s\n' "$default_value"
+    return 0
+  fi
+  zenmind_json_get "$profile_path" "$dotted_path" 2>/dev/null || printf '%s\n' "$default_value"
+}
+
+zenmind_open_config_studio() {
+  zenmind_ensure_profile
+  zenmind_open_config_editor "wizard" "$(zenmind_profile_path)"
+  echo
+  echo "请在浏览器中完成配置，保存后回到此终端继续。"
+  echo "配置文件保存位置: $(zenmind_profile_path)"
+  echo "输入 s 可跳过手动配置，自动生成默认密码。"
+}
+
+zenmind_wait_for_profile() {
+  local profile_path tty_input credentials_file
+  profile_path="$(zenmind_profile_path)"
+  credentials_file="${HOME}/.zenmind-credentials.txt"
+
+  if [[ -f "$profile_path" ]] && zenmind_profile_has_passwords "$profile_path"; then
+    return 0
+  fi
+
+  echo "等待配置文件保存..."
+  while true; do
+    if [[ -f "$profile_path" ]] && zenmind_profile_has_passwords "$profile_path"; then
+      zenmind_summary_add_ok "configuration saved: ${profile_path}"
+      return 0
+    fi
+
+    if [[ -r /dev/tty ]]; then
+      tty_input=""
+      read -r -t 2 tty_input </dev/tty 2>/dev/null || true
+      if [[ "${tty_input:-}" == "s" ]]; then
+        if node "${SCRIPT_DIR}/scripts/generate-default-profile.mjs" --workspace-root "$SCRIPT_DIR" --profile "$profile_path" --credentials-file "$credentials_file"; then
+          zenmind_summary_add_ok "generated default profile: ${profile_path}"
+          zenmind_summary_add_ok "generated credentials file: ${credentials_file}"
+          return 0
+        fi
+        zenmind_summary_add_fail "failed to generate default profile"
+        return 1
+      fi
+    else
+      sleep 2
+    fi
+  done
+}
+
+zenmind_apply_release_config() {
+  local version_dir="${1:-}"
+  if [[ -z "$version_dir" ]]; then
+    version_dir="$(zenmind_current_release_version_dir)" || {
+      zenmind_summary_add_fail "release config sync requires an active release version"
+      return 1
+    }
+  fi
+  zenmind_ensure_profile
+  zenmind_release_apply_profile_to_version "$version_dir"
+}
+
+zenmind_print_access_summary() {
+  local gateway_port admin_port pan_port term_port runner_port
+  local admin_enabled admin_web_enabled pan_enabled pan_web_enabled term_enabled term_web_enabled runner_enabled container_hub_enabled
+  gateway_port="$(zenmind_release_profile_enabled "gateway.listenPort" "11945")"
+  admin_port="$(zenmind_release_profile_enabled "admin.frontendPort" "11950")"
+  pan_port="$(zenmind_release_profile_enabled "pan.frontendPort" "11946")"
+  term_port="$(zenmind_release_profile_enabled "term.frontendPort" "11947")"
+  runner_port="$(zenmind_release_profile_enabled "agentPlatformRunner.hostPort" "11949")"
+  admin_enabled="$(zenmind_release_profile_enabled "admin.enabled" "true")"
+  admin_web_enabled="$(zenmind_release_profile_enabled "admin.webEnabled" "true")"
+  pan_enabled="$(zenmind_release_profile_enabled "pan.enabled" "true")"
+  pan_web_enabled="$(zenmind_release_profile_enabled "pan.webEnabled" "true")"
+  term_enabled="$(zenmind_release_profile_enabled "term.enabled" "true")"
+  term_web_enabled="$(zenmind_release_profile_enabled "term.webEnabled" "true")"
+  runner_enabled="$(zenmind_release_profile_enabled "agentPlatformRunner.enabled" "true")"
+  container_hub_enabled="$(zenmind_release_profile_enabled "containerHub.enabled" "false")"
+
+  zenmind_summary_add_ok "gateway health endpoint: http://127.0.0.1:${gateway_port}/healthz"
+  if [[ "$admin_enabled" != "false" && "$admin_web_enabled" != "false" ]]; then
+    zenmind_summary_add_ok "admin: http://127.0.0.1:${admin_port}/admin/"
+  fi
+  if [[ "$pan_enabled" != "false" && "$pan_web_enabled" != "false" ]]; then
+    zenmind_summary_add_ok "pan: http://127.0.0.1:${pan_port}/pan/"
+  fi
+  if [[ "$term_enabled" != "false" && "$term_web_enabled" != "false" ]]; then
+    zenmind_summary_add_ok "term: http://127.0.0.1:${term_port}/term/"
+  fi
+  if [[ "$runner_enabled" != "false" ]]; then
+    zenmind_summary_add_ok "runner: http://127.0.0.1:${runner_port}/api/agents"
+  fi
+  if [[ "$container_hub_enabled" != "false" && -f "${HOME}/.zenmind-credentials.txt" ]]; then
+    zenmind_summary_add_ok "credentials file: ${HOME}/.zenmind-credentials.txt"
+  elif [[ -f "${HOME}/.zenmind-credentials.txt" ]]; then
+    zenmind_summary_add_ok "credentials file: ${HOME}/.zenmind-credentials.txt"
+  fi
+}
+
+zenmind_run_setup_guide() {
+  zenmind_run_install_release || return 1
+  zenmind_open_config_studio || return 1
+  zenmind_wait_for_profile || return 1
+  zenmind_apply_release_config "$ZENMIND_PREPARED_RELEASE_VERSION_DIR" || return 1
+  zenmind_release_start_version "$ZENMIND_PREPARED_RELEASE_VERSION_DIR" || return 1
+  zenmind_print_access_summary
+}
+
 zenmind_release_start_version() {
   local version_dir="$1"
-  local key_script
+  local key_script gateway_port admin_port pan_port term_port runner_port
+  local admin_enabled admin_web_enabled pan_enabled pan_web_enabled term_enabled term_web_enabled mcp_enabled runner_enabled hub_enabled
 
   if ! setup_prepare_docker_alias; then
     zenmind_summary_add_fail "docker is required for release start"
@@ -1165,6 +1363,20 @@ zenmind_release_start_version() {
 
   zenmind_release_prepare_active_workspace "$version_dir" || return 1
   zenmind_release_ensure_network || return 1
+  gateway_port="$(zenmind_release_profile_enabled "gateway.listenPort" "11945")"
+  admin_port="$(zenmind_release_profile_enabled "admin.frontendPort" "11950")"
+  pan_port="$(zenmind_release_profile_enabled "pan.frontendPort" "11946")"
+  term_port="$(zenmind_release_profile_enabled "term.frontendPort" "11947")"
+  runner_port="$(zenmind_release_profile_enabled "agentPlatformRunner.hostPort" "11949")"
+  admin_enabled="$(zenmind_release_profile_enabled "admin.enabled" "true")"
+  admin_web_enabled="$(zenmind_release_profile_enabled "admin.webEnabled" "true")"
+  pan_enabled="$(zenmind_release_profile_enabled "pan.enabled" "true")"
+  pan_web_enabled="$(zenmind_release_profile_enabled "pan.webEnabled" "true")"
+  term_enabled="$(zenmind_release_profile_enabled "term.enabled" "true")"
+  term_web_enabled="$(zenmind_release_profile_enabled "term.webEnabled" "true")"
+  mcp_enabled="$(zenmind_release_profile_enabled "mcp.enabled" "true")"
+  runner_enabled="$(zenmind_release_profile_enabled "agentPlatformRunner.enabled" "true")"
+  hub_enabled="$(zenmind_release_profile_enabled "containerHub.enabled" "false")"
 
   zenmind_release_start_service "$version_dir" "zenmind-app-server" || return 1
   "$key_script" \
@@ -1174,23 +1386,43 @@ zenmind_release_start_version() {
 
   zenmind_release_copy_public_key_to_clients "$version_dir" || return 1
 
-  zenmind_release_start_service "$version_dir" "pan-webclient" || return 1
-  zenmind_release_start_service "$version_dir" "term-webclient" || return 1
-  zenmind_release_start_service "$version_dir" "mcp-server-mock" || return 1
-  zenmind_release_start_service "$version_dir" "mcp-server-imagine" || return 1
-  zenmind_release_start_service "$version_dir" "agent-container-hub" --daemon || return 1
-  zenmind_release_start_service "$version_dir" "agent-platform-runner" || return 1
+  if [[ "$pan_enabled" != "false" ]]; then
+    zenmind_release_start_service "$version_dir" "pan-webclient" || return 1
+  fi
+  if [[ "$term_enabled" != "false" ]]; then
+    zenmind_release_start_service "$version_dir" "term-webclient" || return 1
+  fi
+  if [[ "$mcp_enabled" != "false" ]]; then
+    zenmind_release_start_service "$version_dir" "mcp-server-mock" || return 1
+    zenmind_release_start_service "$version_dir" "mcp-server-imagine" || return 1
+  fi
+  if [[ "$hub_enabled" != "false" ]]; then
+    zenmind_release_start_service "$version_dir" "agent-container-hub" --daemon || return 1
+  fi
+  if [[ "$runner_enabled" != "false" ]]; then
+    zenmind_release_start_service "$version_dir" "agent-platform-runner" || return 1
+  fi
   zenmind_release_start_service "$version_dir" "zenmind-voice-server" || return 1
   zenmind_release_start_service "$version_dir" "zenmind-gateway" || return 1
 
-  zenmind_release_verify_http "http://127.0.0.1:11945/healthz" "gateway health" || return 1
-  zenmind_release_verify_http "http://127.0.0.1:11946/pan/" "pan frontend" || return 1
-  zenmind_release_verify_http "http://127.0.0.1:11947/term/" "term frontend" || return 1
-  zenmind_release_verify_http "http://127.0.0.1:11950/admin/" "app admin frontend" || return 1
+  zenmind_release_verify_http "http://127.0.0.1:${gateway_port}/healthz" "gateway health" || return 1
+  if [[ "$pan_enabled" != "false" && "$pan_web_enabled" != "false" ]]; then
+    zenmind_release_verify_http "http://127.0.0.1:${pan_port}/pan/" "pan frontend" || return 1
+  fi
+  if [[ "$term_enabled" != "false" && "$term_web_enabled" != "false" ]]; then
+    zenmind_release_verify_http "http://127.0.0.1:${term_port}/term/" "term frontend" || return 1
+  fi
+  if [[ "$admin_enabled" != "false" && "$admin_web_enabled" != "false" ]]; then
+    zenmind_release_verify_http "http://127.0.0.1:${admin_port}/admin/" "app admin frontend" || return 1
+  fi
   zenmind_release_verify_http "http://127.0.0.1:11953/actuator/health" "voice backend health" || return 1
-  zenmind_release_verify_runner_agents || return 1
-  zenmind_release_verify_mcp "http://127.0.0.1:11969/mcp" "mock MCP" || return 1
-  zenmind_release_verify_mcp "http://127.0.0.1:11962/mcp" "imagine MCP" || return 1
+  if [[ "$runner_enabled" != "false" ]]; then
+    zenmind_release_verify_runner_agents "$runner_port" || return 1
+  fi
+  if [[ "$mcp_enabled" != "false" ]]; then
+    zenmind_release_verify_mcp "http://127.0.0.1:11969/mcp" "mock MCP" || return 1
+    zenmind_release_verify_mcp "http://127.0.0.1:11962/mcp" "imagine MCP" || return 1
+  fi
 }
 
 zenmind_release_stop_version() {
@@ -1380,6 +1612,10 @@ zenmind_run_upgrade_release() {
     return 1
   }
   staged_version_dir="$ZENMIND_PREPARED_RELEASE_VERSION_DIR"
+  zenmind_apply_release_config "$staged_version_dir" || {
+    rm -f "$state_file" "$manifest_file"
+    return 1
+  }
 
   zenmind_release_stop_version "$active_version_dir"
   if ! zenmind_release_start_version "$staged_version_dir"; then
@@ -1560,6 +1796,7 @@ zenmind_run_start() {
       zenmind_resolve_or_bootstrap_state_to_file "$state_file" || { rm -f "$state_file"; return 1; }
       version_dir="$(zenmind_json_get "$state_file" "release.activeVersionDir")"
       rm -f "$state_file"
+      zenmind_apply_release_config "$version_dir" || return 1
       zenmind_release_start_version "$version_dir"
       ;;
     *)
@@ -1633,7 +1870,7 @@ Interactive menu (default, adapts to current workspace state):
     0) 退出
 
 Options:
-  --action         check | configure | install | upgrade | start | stop | view | check-update | download-all
+  --action         check | configure | install | upgrade | setup-guide | start | stop | view | check-update | download-all
   --source         install/upgrade mode: source repos
   --release        install/upgrade mode: release bundles
   --manifest <x>   manifest URL, manifest file path, or a local dist/<version> directory
@@ -1788,6 +2025,7 @@ zenmind_dispatch() {
     configure) zenmind_run_configure ;;
     install) zenmind_run_install ;;
     upgrade) zenmind_run_upgrade ;;
+    setup-guide) zenmind_run_setup_guide ;;
     start) zenmind_run_start ;;
     stop) zenmind_run_stop ;;
     view) zenmind_run_view ;;

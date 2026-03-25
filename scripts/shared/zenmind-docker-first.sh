@@ -420,27 +420,21 @@ zenmind_run_check() {
 }
 
 zenmind_run_configure() {
+  local install_mode
   zenmind_prompt_configure_mode
   zenmind_ensure_profile
+  install_mode="$(zenmind_resolve_install_mode_from_state 2>/dev/null || true)"
 
   case "${CONFIGURE_MODE:-}" in
     web)
-      local editor_path
-      editor_path="${SCRIPT_DIR}/config/editor/index.html"
-      zenmind_summary_add_ok "config editor ready: ${editor_path}"
-      zenmind_summary_add_ok "aggregate JSON path: $(zenmind_profile_path)"
-      case "$ZENMIND_OS" in
-        mac)
-          if command -v open >/dev/null 2>&1; then
-            open "$editor_path" || zenmind_summary_add_warn "failed to auto-open config editor"
-          fi
-          ;;
-        linux)
-          if command -v xdg-open >/dev/null 2>&1; then
-            xdg-open "$editor_path" >/dev/null 2>&1 || zenmind_summary_add_warn "failed to auto-open config editor"
-          fi
-          ;;
-      esac
+      if declare -F zenmind_open_config_editor >/dev/null 2>&1; then
+        zenmind_open_config_editor "editor" "$(zenmind_profile_path)"
+      else
+        local editor_path
+        editor_path="${SCRIPT_DIR}/config/editor/index.html"
+        zenmind_summary_add_ok "config editor ready: ${editor_path}"
+        zenmind_summary_add_ok "aggregate JSON path: $(zenmind_profile_path)"
+      fi
       ;;
     cli)
       if node "${SCRIPT_DIR}/scripts/configure-profile.mjs" --workspace-root "$SCRIPT_DIR" --profile "$(zenmind_profile_path)"; then
@@ -451,7 +445,11 @@ zenmind_run_configure() {
       fi
       ;;
     sync-only)
-      zenmind_apply_config || return 1
+      if [[ "$install_mode" == "release" ]] && declare -F zenmind_apply_release_config >/dev/null 2>&1; then
+        zenmind_apply_release_config || return 1
+      else
+        zenmind_apply_config || return 1
+      fi
       ;;
     *)
       zenmind_summary_add_fail "unsupported configure mode: ${CONFIGURE_MODE:-}"

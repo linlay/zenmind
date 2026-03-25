@@ -286,6 +286,30 @@ function deriveOrigin(domain) {
   return `https://${domain}`;
 }
 
+function usesLocalReleaseIssuer(domain) {
+  const normalized = normalizeDomain(domain);
+  if (!normalized) {
+    return true;
+  }
+  if (normalized === "localhost" || normalized === "127.0.0.1") {
+    return true;
+  }
+  if (normalized === DEFAULT_PROFILE.website.domain) {
+    return true;
+  }
+  if (normalized.endsWith(".example.com")) {
+    return true;
+  }
+  return false;
+}
+
+function deriveReleaseIssuer(domain, gatewayPort) {
+  if (usesLocalReleaseIssuer(domain)) {
+    return `http://127.0.0.1:${gatewayPort}`;
+  }
+  return deriveOrigin(domain);
+}
+
 function derivePublicRunnerBaseUrl(hostPort) {
   return `http://127.0.0.1:${hostPort}`;
 }
@@ -1145,6 +1169,146 @@ function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
+function ensureReleaseEnvFile(serviceDir) {
+  const envPath = path.join(serviceDir, ".env");
+  if (fs.existsSync(envPath)) {
+    return envPath;
+  }
+
+  const examplePath = path.join(serviceDir, ".env.example");
+  ensureDir(serviceDir);
+  if (fs.existsSync(examplePath)) {
+    fs.copyFileSync(examplePath, envPath);
+  } else {
+    fs.writeFileSync(envPath, "", "utf8");
+  }
+  return envPath;
+}
+
+function updateEnvContent(content, updates) {
+  const lines = String(content || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const result = [];
+  const seen = new Set();
+
+  for (const rawLine of lines) {
+    const line = rawLine ?? "";
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) {
+      result.push(line);
+      continue;
+    }
+    const key = match[1];
+    if (!Object.prototype.hasOwnProperty.call(updates, key)) {
+      result.push(line);
+      continue;
+    }
+    result.push(`${key}=${updates[key]}`);
+    seen.add(key);
+  }
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (!seen.has(key)) {
+      result.push(`${key}=${value}`);
+    }
+  }
+
+  const normalized = result.join("\n").replace(/\n+$/, "");
+  return `${normalized}\n`;
+}
+
+function collectReleaseWrites(profile, versionDir, workspaceRoot, bcryptScriptPath) {
+  const reposRoot = path.resolve(workspaceRoot, "..");
+  const detailed = expandProfile(profile, reposRoot);
+  const releaseIssuer = deriveReleaseIssuer(detailed.website.domain, detailed.gateway.listenPort);
+  detailed.services.zenmindAppServer.issuer = releaseIssuer;
+  detailed.services.termWebclient.appAuthIssuer = releaseIssuer;
+
+  const deployDir = path.join(versionDir, "deploy");
+  const writes = [];
+
+  const appServerDir = path.join(deployDir, "zenmind-app-server");
+  const appServerEnvPath = ensureReleaseEnvFile(appServerDir);
+  writes.push({
+    path: appServerEnvPath,
+    content: updateEnvContent(fs.readFileSync(appServerEnvPath, "utf8"), {
+      FRONTEND_PORT: String(detailed.services.zenmindAppServer.frontendPort),
+      AUTH_ISSUER: quoteEnv(releaseIssuer),
+      AUTH_ADMIN_PASSWORD_BCRYPT: quoteEnv(resolveSecretHash(detailed.services.zenmindAppServer.adminPassword, bcryptScriptPath)),
+      AUTH_APP_MASTER_PASSWORD_BCRYPT: quoteEnv(resolveSecretHash(detailed.services.zenmindAppServer.appMasterPassword, bcryptScriptPath))
+    })
+  });
+
+  const panDir = path.join(deployDir, "pan-webclient");
+  const panEnvPath = ensureReleaseEnvFile(panDir);
+  writes.push({
+    path: panEnvPath,
+    content: updateEnvContent(fs.readFileSync(panEnvPath, "utf8"), {
+      NGINX_PORT: String(detailed.services.panWebclient.frontendPort),
+      AUTH_PASSWORD_HASH_BCRYPT: quoteEnv(resolveSecretHash(detailed.services.panWebclient.webPassword, bcryptScriptPath)),
+      WEB_SESSION_SECRET: quoteEnv(detailed.services.panWebclient.webSessionSecret)
+    })
+  });
+
+  const termDir = path.join(deployDir, "term-webclient");
+  const termEnvPath = ensureReleaseEnvFile(termDir);
+  writes.push({
+    path: termEnvPath,
+    content: updateEnvContent(fs.readFileSync(termEnvPath, "utf8"), {
+      FRONTEND_PORT: String(detailed.services.termWebclient.frontendPort),
+      AUTH_PASSWORD_HASH_BCRYPT: quoteEnv(resolveSecretHash(detailed.services.termWebclient.webPassword, bcryptScriptPath)),
+      APP_AUTH_ISSUER: quoteEnv(releaseIssuer)
+    })
+  });
+
+  const gatewayDir = path.join(deployDir, "zenmind-gateway");
+  const gatewayEnvPath = ensureReleaseEnvFile(gatewayDir);
+  writes.push({
+    path: gatewayEnvPath,
+    content: updateEnvContent(fs.readFileSync(gatewayEnvPath, "utf8"), {
+      GATEWAY_PORT: String(detailed.gateway.listenPort)
+    })
+  });
+
+  const runnerDir = path.join(deployDir, "agent-platform-runner");
+  const runnerEnvPath = ensureReleaseEnvFile(runnerDir);
+  writes.push({
+    path: runnerEnvPath,
+    content: updateEnvContent(fs.readFileSync(runnerEnvPath, "utf8"), {
+      HOST_PORT: String(detailed.services.agentPlatformRunner.hostPort),
+      AGENT_AUTH_ISSUER: quoteEnv(releaseIssuer)
+    })
+  });
+  writes.push({
+    path: path.join(runnerDir, "configs", "container-hub.yml"),
+    content: renderRunnerContainerHubConfig(detailed)
+  });
+
+  const containerHubDir = path.join(deployDir, "agent-container-hub");
+  const containerHubEnvPath = ensureReleaseEnvFile(containerHubDir);
+  writes.push({
+    path: containerHubEnvPath,
+    content: updateEnvContent(fs.readFileSync(containerHubEnvPath, "utf8"), {
+      BIND_ADDR: quoteEnv(detailed.services.containerHub.bindAddr),
+      AUTH_TOKEN: quoteEnv(detailed.services.containerHub.authToken)
+    })
+  });
+
+  return {
+    writes,
+    meta: {
+      releaseIssuer,
+      enabled: {
+        admin: Boolean(profile.admin?.enabled ?? true),
+        pan: Boolean(profile.pan?.enabled ?? true),
+        term: Boolean(profile.term?.enabled ?? true),
+        mcp: Boolean(profile.mcp?.enabled ?? true),
+        runner: Boolean(profile.agentPlatformRunner?.enabled ?? true),
+        containerHub: Boolean(profile.containerHub?.enabled ?? false)
+      }
+    }
+  };
+}
+
 function collectWrites(profile, workspaceRoot, reposRoot, bcryptScriptPath) {
   const normalized = normalizeProfile(profile);
   const detailed = expandProfile(normalized, reposRoot);
@@ -1187,6 +1351,20 @@ export function applyProfile({ profile, workspaceRoot, reposRoot, bcryptScriptPa
   }
 
   return { writes, extraSteps: [] };
+}
+
+export function applyToRelease({ profile, workspaceRoot, versionDir, bcryptScriptPath, dryRun = false }) {
+  const normalized = normalizeProfile(profile);
+  const { writes, meta } = collectReleaseWrites(normalized, versionDir, workspaceRoot, bcryptScriptPath);
+
+  if (!dryRun) {
+    for (const write of writes) {
+      ensureDir(path.dirname(write.path));
+      fs.writeFileSync(write.path, write.content, "utf8");
+    }
+  }
+
+  return { writes, meta, extraSteps: [] };
 }
 
 export function getProfileLocations(workspaceRoot) {
