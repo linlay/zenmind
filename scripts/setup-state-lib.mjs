@@ -37,8 +37,10 @@ const RELEASE_BUNDLE_REQUIREMENTS = [
   { service: "mcp-server-mock", os: "linux", runtime: "image" },
   { service: "pan-webclient", os: "linux", runtime: "image" },
   { service: "zenmind-app-server", os: "linux", runtime: "image" },
-  { service: "zenmind-gateway", os: "linux", runtime: "image" },
   { service: "zenmind-voice-server", os: "linux", runtime: "image" },
+  { service: "agent-webclient", os: "linux", runtime: "image" },
+  { service: "agent-weixin-bridge", os: "linux", runtime: "image" },
+  { service: "zenmind-gateway", os: "linux", runtime: "image" },
   { service: "zenmind-data", os: "any", runtime: "runtime" }
 ];
 

@@ -47,7 +47,9 @@ function makeReleaseVersionDir(root, version = "v1.2.3") {
     ["term-webclient", "FRONTEND_PORT=10002\nAUTH_PASSWORD_HASH_BCRYPT=old-term\nAPP_AUTH_ISSUER=https://old.example.com\n"],
     ["zenmind-gateway", "GATEWAY_PORT=10003\n"],
     ["agent-platform-runner", "HOST_PORT=10004\nAGENT_AUTH_ISSUER=https://old.example.com\n"],
-    ["agent-container-hub", "BIND_ADDR=127.0.0.1:10005\nAUTH_TOKEN=old-token\n"]
+    ["agent-container-hub", "BIND_ADDR=127.0.0.1:10005\nAUTH_TOKEN=old-token\n"],
+    ["agent-webclient", "HOST_PORT=10006\nBASE_URL=http://host.docker.internal:9999\nVOICE_BASE_URL=http://host.docker.internal:9998\n"],
+    ["agent-weixin-bridge", "HOST_PORT=10007\nRUNNER_BASE_URL=http://agent-platform-runner:8080\nRUNNER_AGENT_KEY=replace-with-runner-agent-key\n"]
   ]);
 
   for (const [service, content] of envFiles.entries()) {
@@ -353,6 +355,8 @@ test("applyToRelease writes local issuer and enabled metadata for release bundle
   const runnerEnv = fs.readFileSync(path.join(versionDir, "deploy", "agent-platform-runner", ".env"), "utf8");
   const runnerHubConfig = fs.readFileSync(path.join(versionDir, "deploy", "agent-platform-runner", "configs", "container-hub.yml"), "utf8");
   const hubEnv = fs.readFileSync(path.join(versionDir, "deploy", "agent-container-hub", ".env"), "utf8");
+  const agentWebclientEnv = fs.readFileSync(path.join(versionDir, "deploy", "agent-webclient", ".env"), "utf8");
+  const bridgeEnv = fs.readFileSync(path.join(versionDir, "deploy", "agent-weixin-bridge", ".env"), "utf8");
 
   assert.equal(result.meta.releaseIssuer, "http://127.0.0.1:12945");
   assert.deepEqual(result.meta.enabled, {
@@ -378,6 +382,10 @@ test("applyToRelease writes local issuer and enabled metadata for release bundle
   assert.match(runnerHubConfig, /base-url: http:\/\/host\.docker\.internal:12960/);
   assert.match(hubEnv, /BIND_ADDR=127\.0\.0\.1:12960/);
   assert.match(hubEnv, /AUTH_TOKEN=container-hub-token/);
+  assert.match(agentWebclientEnv, /BASE_URL=http:\/\/host\.docker\.internal:12949/);
+  assert.match(agentWebclientEnv, /VOICE_BASE_URL=http:\/\/host\.docker\.internal:11953/);
+  assert.match(bridgeEnv, /RUNNER_BASE_URL=http:\/\/agent-platform-runner:8080/);
+  assert.match(bridgeEnv, /RUNNER_AGENT_KEY=replace-with-runner-agent-key/);
 });
 
 test("applyToRelease uses https issuer for real domains", () => {
@@ -400,4 +408,29 @@ test("applyToRelease uses https issuer for real domains", () => {
   assert.match(appEnv, /AUTH_ISSUER=https:\/\/app\.zenmind\.cc/);
   assert.match(termEnv, /APP_AUTH_ISSUER=https:\/\/app\.zenmind\.cc/);
   assert.match(runnerEnv, /AGENT_AUTH_ISSUER=https:\/\/app\.zenmind\.cc/);
+});
+
+test("applyToRelease keeps existing bridge env values", () => {
+  const { root, workspaceRoot } = makeWorkspace();
+  const versionDir = makeReleaseVersionDir(root, "v2.2.0");
+  const profile = buildConfiguredProfile();
+  const bridgeEnvPath = path.join(versionDir, "deploy", "agent-weixin-bridge", ".env");
+
+  fs.writeFileSync(bridgeEnvPath, [
+    "HOST_PORT=12958",
+    "RUNNER_BASE_URL=http://legacy-runner.internal:18080",
+    "RUNNER_AGENT_KEY=wechat-assistant",
+    ""
+  ].join("\n"));
+
+  applyToRelease({
+    profile,
+    workspaceRoot,
+    versionDir,
+    bcryptScriptPath: "/bin/echo"
+  });
+
+  const bridgeEnv = fs.readFileSync(bridgeEnvPath, "utf8");
+  assert.match(bridgeEnv, /RUNNER_BASE_URL=http:\/\/legacy-runner\.internal:18080/);
+  assert.match(bridgeEnv, /RUNNER_AGENT_KEY=wechat-assistant/);
 });

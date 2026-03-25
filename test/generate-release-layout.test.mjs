@@ -40,6 +40,8 @@ test("collect-dist builds exact patch, release-line aliases, and stable index", 
     "zenmind-gateway",
     "zenmind-app-server",
     "zenmind-voice-server",
+    "agent-webclient",
+    "agent-weixin-bridge",
     "pan-webclient",
     "term-webclient",
     "agent-container-hub",
@@ -85,15 +87,18 @@ test("collect-dist builds exact patch, release-line aliases, and stable index", 
 
   assert.equal(exactManifest.stackVersion, "v0.1.3");
   assert.equal(exactManifest.releaseLine, "v0.1");
+  assert.equal(exactManifest.artifacts.length, 12);
   assert.match(exactManifest.artifacts[0].url, /^[^/]+\.tar\.gz$/);
   assert.equal(fs.existsSync(path.join(patchDir, "SHA256SUMS")), true);
 
   assert.equal(lineManifest.stackVersion, "v0.1.3");
   assert.equal(lineManifest.releaseLine, "v0.1");
+  assert.equal(lineManifest.artifacts.length, 12);
   assert.match(lineManifest.artifacts[0].url, /^patches\/v0\.1\.3\//);
 
   assert.equal(stableManifest.stackVersion, "v0.1.3");
   assert.equal(stableManifest.releaseLine, "v0.1");
+  assert.equal(stableManifest.artifacts.length, 12);
   assert.match(stableManifest.artifacts[0].url, /^v0\.1\/patches\/v0\.1\.3\//);
 
   assert.equal(indexBody.stableReleaseLine, "v0.1");

@@ -244,3 +244,59 @@ test("release bundle deployment writes registries and zenmind data directories",
   assert.match(runnerEnv, new RegExp(`MCP_SERVERS_DIR=${escapeRegExp(path.join(deployZenmindDir, "registries", "mcp-servers"))}`));
   assert.match(runnerEnv, new RegExp(`VIEWPORT_SERVERS_DIR=${escapeRegExp(path.join(deployZenmindDir, "registries", "viewport-servers"))}`));
 });
+
+test("release copy_previous_state preserves bridge runtime and optional start skips placeholder agent key", () => {
+  const root = makeTempDir("zenmind-release-bridge-state-");
+  const scriptPath = path.join(repoRoot, "scripts", "shared", "zenmind-setup-actions.sh");
+  const previousVersionDir = path.join(root, "release", "v0.0.1");
+  const nextVersionDir = path.join(root, "release", "v0.0.2");
+  const previousDeploy = path.join(previousVersionDir, "deploy");
+  const nextDeploy = path.join(nextVersionDir, "deploy");
+  const previousBridgeDir = path.join(previousDeploy, "agent-weixin-bridge");
+  const nextBridgeDir = path.join(nextDeploy, "agent-weixin-bridge");
+  const nextWebclientDir = path.join(nextDeploy, "agent-webclient");
+
+  writeFile(path.join(previousBridgeDir, ".env"), "RUNNER_AGENT_KEY=wechat-assistant\n");
+  writeFile(path.join(previousBridgeDir, "runtime", "weixin-state", "credential.json"), "{\"token\":true}\n");
+  writeFile(path.join(previousDeploy, "agent-webclient", ".env"), "BASE_URL=http://host.docker.internal:11949\n");
+  writeFile(path.join(nextBridgeDir, ".env.example"), "RUNNER_AGENT_KEY=replace-with-runner-agent-key\n");
+  writeFile(path.join(nextWebclientDir, ".env.example"), "BASE_URL=http://host.docker.internal:11949\nVOICE_BASE_URL=http://host.docker.internal:11953\n");
+
+  const output = execFileSync("bash", ["-lc", [
+    "set -euo pipefail",
+    "zenmind_repo_root_path() { printf '%s\\n' \"$REPO_ROOT\"; }",
+    "WARNINGS=()",
+    "STARTED=()",
+    "zenmind_summary_add_fail() { printf '%s\\n' \"$*\" >&2; return 1; }",
+    "source \"$SCRIPT_PATH\"",
+    "zenmind_summary_add_warn() { WARNINGS+=(\"$*\"); }",
+    "zenmind_release_copy_previous_state \"$PREVIOUS_VERSION_DIR\" \"$NEXT_VERSION_DIR\"",
+    "copied_env=$(cat \"$NEXT_DEPLOY/agent-webclient/.env\")",
+    "copied_state=$(cat \"$NEXT_DEPLOY/agent-weixin-bridge/runtime/weixin-state/credential.json\")",
+    "printf 'copied_env=%s\\n' \"$copied_env\"",
+    "printf 'copied_state=%s\\n' \"$copied_state\"",
+    "printf 'copied_bridge_env=%s\\n' \"$(cat \"$NEXT_DEPLOY/agent-weixin-bridge/.env\")\"",
+    "printf 'RUNNER_AGENT_KEY=replace-with-runner-agent-key\\n' >\"$NEXT_DEPLOY/agent-weixin-bridge/.env\"",
+    "zenmind_release_start_service() { STARTED+=(\"$2\"); }",
+    "zenmind_release_start_weixin_bridge_if_configured \"$NEXT_VERSION_DIR\"",
+    "printf 'warnings=%s\\n' \"${WARNINGS[*]}\"",
+    "printf 'started=%s\\n' \"${STARTED[*]-}\""
+  ].join("; ")], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      REPO_ROOT: root,
+      SCRIPT_PATH: scriptPath,
+      PREVIOUS_VERSION_DIR: previousVersionDir,
+      NEXT_VERSION_DIR: nextVersionDir,
+      NEXT_DEPLOY: nextDeploy
+    },
+    encoding: "utf8"
+  });
+
+  assert.match(output, /copied_env=BASE_URL=http:\/\/host\.docker\.internal:11949/);
+  assert.match(output, /copied_state=\{"token":true\}/);
+  assert.match(output, /copied_bridge_env=RUNNER_AGENT_KEY=wechat-assistant/);
+  assert.match(output, /warnings=skipping agent-weixin-bridge auto-start: RUNNER_AGENT_KEY is not configured/);
+  assert.match(output, /started=\s*$/);
+});

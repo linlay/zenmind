@@ -87,16 +87,20 @@ test("selectReleaseArtifacts chooses host and linux bundle mix", () => {
       { service: "mcp-server-mock", os: "linux", arch: "arm64", runtime: "image", fileName: "mcp-server-mock-v0.2.0-linux-arm64.tar.gz" },
       { service: "pan-webclient", os: "linux", arch: "arm64", runtime: "image", fileName: "pan-webclient-v0.2.0-linux-arm64.tar.gz" },
       { service: "zenmind-app-server", os: "linux", arch: "arm64", runtime: "image", fileName: "zenmind-app-server-v0.2.0-linux-arm64.tar.gz" },
-      { service: "zenmind-gateway", os: "linux", arch: "arm64", runtime: "image", fileName: "zenmind-gateway-v0.2.0-linux-arm64.tar.gz" },
       { service: "zenmind-voice-server", os: "linux", arch: "arm64", runtime: "image", fileName: "zenmind-voice-server-v0.2.0-linux-arm64.tar.gz" },
+      { service: "agent-webclient", os: "linux", arch: "arm64", runtime: "image", fileName: "agent-webclient-v0.2.0-linux-arm64.tar.gz" },
+      { service: "agent-weixin-bridge", os: "linux", arch: "arm64", runtime: "image", fileName: "agent-weixin-bridge-v0.2.0-linux-arm64.tar.gz" },
+      { service: "zenmind-gateway", os: "linux", arch: "arm64", runtime: "image", fileName: "zenmind-gateway-v0.2.0-linux-arm64.tar.gz" },
       { service: "zenmind-data", runtime: "runtime", fileName: "zenmind-data-v0.2.0.tar.gz" }
     ]
   };
 
   const artifacts = selectReleaseArtifacts(manifest, "darwin", "arm64");
-  assert.equal(artifacts.length, 10);
+  assert.equal(artifacts.length, 12);
   assert.equal(artifacts[0].service, "agent-container-hub");
   assert.equal(artifacts[1].service, "term-webclient");
+  assert.equal(artifacts[8].service, "agent-webclient");
+  assert.equal(artifacts[9].service, "agent-weixin-bridge");
   assert.equal(artifacts.at(-1).service, "zenmind-data");
 });
 

@@ -22,11 +22,19 @@ function makeReleaseBundle(version = "v9.9.9") {
     "term-webclient",
     "zenmind-gateway",
     "agent-platform-runner",
-    "agent-container-hub"
+    "agent-container-hub",
+    "agent-webclient",
+    "agent-weixin-bridge"
   ]) {
     const serviceDir = path.join(deployDir, service);
     fs.mkdirSync(path.join(serviceDir, "configs"), { recursive: true });
-    fs.writeFileSync(path.join(serviceDir, ".env.example"), "", "utf8");
+    let envExample = "";
+    if (service === "agent-webclient") {
+      envExample = "BASE_URL=http://host.docker.internal:11949\nVOICE_BASE_URL=http://host.docker.internal:11953\n";
+    } else if (service === "agent-weixin-bridge") {
+      envExample = "RUNNER_BASE_URL=http://agent-platform-runner:8080\nRUNNER_AGENT_KEY=replace-with-runner-agent-key\n";
+    }
+    fs.writeFileSync(path.join(serviceDir, ".env.example"), envExample, "utf8");
   }
   return { root, versionDir };
 }
@@ -37,6 +45,7 @@ test("apply-release-config dry-run prints release writes", () => {
   const profile = getDefaultProfile();
   profile.website.domain = "localhost";
   profile.gateway.listenPort = 13045;
+  profile.agentPlatformRunner.hostPort = 13049;
   profile.pan.webSessionSecret = "session-from-test";
   profile.admin.webPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
   profile.admin.appMasterPasswordBcrypt = "$2y$10$JVqLor5i8Rbmt3vVCXWFLeuodmL02vQUfIvWFOw.1uggVgWoZM0Xy";
@@ -56,6 +65,11 @@ test("apply-release-config dry-run prints release writes", () => {
   assert.match(output, /AUTH_ISSUER=http:\/\/127\.0\.0\.1:13045/);
   assert.match(output, /pan-webclient\/\.env/);
   assert.match(output, /WEB_SESSION_SECRET=session-from-test/);
+  assert.match(output, /agent-webclient\/\.env/);
+  assert.match(output, /BASE_URL=http:\/\/host\.docker\.internal:13049/);
+  assert.match(output, /VOICE_BASE_URL=http:\/\/host\.docker\.internal:11953/);
+  assert.match(output, /agent-weixin-bridge\/\.env/);
+  assert.match(output, /RUNNER_BASE_URL=http:\/\/agent-platform-runner:8080/);
   assert.match(output, /issuer=http:\/\/127\.0\.0\.1:13045/);
 });
 

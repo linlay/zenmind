@@ -1293,6 +1293,32 @@ function collectReleaseWrites(profile, versionDir, workspaceRoot, bcryptScriptPa
     })
   });
 
+  const agentWebclientDir = path.join(deployDir, "agent-webclient");
+  const agentWebclientEnvPath = ensureReleaseEnvFile(agentWebclientDir);
+  writes.push({
+    path: agentWebclientEnvPath,
+    content: updateEnvContent(fs.readFileSync(agentWebclientEnvPath, "utf8"), {
+      BASE_URL: quoteEnv(`http://host.docker.internal:${detailed.services.agentPlatformRunner.hostPort}`),
+      VOICE_BASE_URL: quoteEnv(`http://host.docker.internal:${detailed.services.voiceServer.port}`)
+    })
+  });
+
+  const agentWeixinBridgeDir = path.join(deployDir, "agent-weixin-bridge");
+  const agentWeixinBridgeEnvPath = path.join(agentWeixinBridgeDir, ".env");
+  const agentWeixinBridgeEnvExisted = fs.existsSync(agentWeixinBridgeEnvPath);
+  ensureReleaseEnvFile(agentWeixinBridgeDir);
+  writes.push({
+    path: agentWeixinBridgeEnvPath,
+    content: updateEnvContent(
+      fs.readFileSync(agentWeixinBridgeEnvPath, "utf8"),
+      agentWeixinBridgeEnvExisted
+        ? {}
+        : {
+            RUNNER_BASE_URL: quoteEnv("http://agent-platform-runner:8080")
+          }
+    )
+  });
+
   return {
     writes,
     meta: {

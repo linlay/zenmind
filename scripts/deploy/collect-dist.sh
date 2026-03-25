@@ -12,6 +12,8 @@ PROJECTS=(
   "zenmind-gateway"
   "zenmind-app-server"
   "zenmind-voice-server"
+  "agent-webclient"
+  "agent-weixin-bridge"
   "pan-webclient"
   "term-webclient"
   "agent-container-hub"

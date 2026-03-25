@@ -22,11 +22,15 @@ readonly ZENMIND_RELEASE_START_SERVICES=(
   "agent-container-hub"
   "agent-platform-runner"
   "zenmind-voice-server"
+  "agent-webclient"
+  "agent-weixin-bridge"
   "zenmind-gateway"
 )
 
 readonly ZENMIND_RELEASE_STOP_SERVICES=(
   "zenmind-gateway"
+  "agent-weixin-bridge"
+  "agent-webclient"
   "zenmind-voice-server"
   "agent-platform-runner"
   "agent-container-hub"
@@ -656,6 +660,18 @@ zenmind_release_prepare_env_file() {
   fi
 }
 
+zenmind_release_trim_env_value() {
+  local value="${1:-}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  if [[ "$value" == \"*\" && "$value" == *\" && ${#value} -ge 2 ]]; then
+    value="${value:1:${#value}-2}"
+  elif [[ "$value" == \'*\' && "$value" == *\' && ${#value} -ge 2 ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+  printf '%s\n' "$value"
+}
+
 zenmind_release_current_env_value() {
   local file="$1"
   local key="$2"
@@ -901,7 +917,7 @@ zenmind_release_prepare_agents_bundle() {
 zenmind_release_copy_previous_state() {
   local previous_version_dir="$1"
   local version_dir="$2"
-  local previous_deploy target_deploy service_name
+  local previous_deploy target_deploy service_name previous_bridge_state target_bridge_runtime
   [[ -n "$previous_version_dir" && -d "$previous_version_dir" ]] || return 0
   previous_deploy="$(zenmind_release_deploy_dir "$previous_version_dir")"
   target_deploy="$(zenmind_release_deploy_dir "$version_dir")"
@@ -912,7 +928,7 @@ zenmind_release_copy_previous_state() {
     cp -R "$previous_deploy/.zenmind/." "$target_deploy/.zenmind/"
   fi
 
-  for service_name in "agent-container-hub" "agent-platform-runner" "mcp-server-imagine" "mcp-server-mock" "pan-webclient" "term-webclient" "zenmind-app-server" "zenmind-gateway" "zenmind-voice-server"; do
+  for service_name in "agent-container-hub" "agent-platform-runner" "mcp-server-imagine" "mcp-server-mock" "pan-webclient" "term-webclient" "zenmind-app-server" "zenmind-gateway" "zenmind-voice-server" "agent-webclient" "agent-weixin-bridge"; do
     if [[ -f "$previous_deploy/$service_name/.env" ]]; then
       cp "$previous_deploy/$service_name/.env" "$target_deploy/$service_name/.env"
     fi
@@ -925,6 +941,14 @@ zenmind_release_copy_previous_state() {
       cp -R "$previous_deploy/$service_name/data" "$target_deploy/$service_name/data"
     fi
   done
+
+  previous_bridge_state="$previous_deploy/agent-weixin-bridge/runtime/weixin-state"
+  if [[ -d "$previous_bridge_state" ]]; then
+    target_bridge_runtime="$target_deploy/agent-weixin-bridge/runtime"
+    mkdir -p "$target_bridge_runtime"
+    rm -rf "$target_bridge_runtime/weixin-state"
+    cp -R "$previous_bridge_state" "$target_bridge_runtime/weixin-state"
+  fi
 }
 
 zenmind_release_prepare_runner_runtime() {
@@ -1057,6 +1081,8 @@ zenmind_release_prepare_active_workspace() {
   zenmind_release_prepare_env_file "$(zenmind_release_service_dir "$version_dir" "zenmind-app-server")"
   zenmind_release_prepare_env_file "$(zenmind_release_service_dir "$version_dir" "zenmind-gateway")"
   zenmind_release_prepare_env_file "$(zenmind_release_service_dir "$version_dir" "zenmind-voice-server")"
+  zenmind_release_prepare_env_file "$(zenmind_release_service_dir "$version_dir" "agent-webclient")"
+  zenmind_release_prepare_env_file "$(zenmind_release_service_dir "$version_dir" "agent-weixin-bridge")"
 
   zenmind_release_set_env_value "$(zenmind_release_service_dir "$version_dir" "zenmind-app-server")/.env" "AUTH_ISSUER" "http://127.0.0.1:11945"
   [[ -f "$(zenmind_release_service_dir "$version_dir" "mcp-server-imagine")/configs/provider.yml" ]] || \
@@ -1091,6 +1117,23 @@ zenmind_release_start_service() {
     cd "$service_dir"
     ./start.sh "$@"
   )
+}
+
+zenmind_release_start_weixin_bridge_if_configured() {
+  local version_dir="$1"
+  local env_file raw_agent_key agent_key
+  env_file="$(zenmind_release_service_dir "$version_dir" "agent-weixin-bridge")/.env"
+  raw_agent_key="$(zenmind_release_current_env_value "$env_file" "RUNNER_AGENT_KEY" || true)"
+  agent_key="$(zenmind_release_trim_env_value "$raw_agent_key")"
+
+  case "$agent_key" in
+    ""|"replace-with-runner-agent-key"|"__RUNNER_AGENT_KEY__")
+      zenmind_summary_add_warn "skipping agent-weixin-bridge auto-start: RUNNER_AGENT_KEY is not configured in ${env_file}"
+      return 0
+      ;;
+  esac
+
+  zenmind_release_start_service "$version_dir" "agent-weixin-bridge"
 }
 
 zenmind_release_stop_service_if_present() {
@@ -1403,6 +1446,8 @@ zenmind_release_start_version() {
     zenmind_release_start_service "$version_dir" "agent-platform-runner" || return 1
   fi
   zenmind_release_start_service "$version_dir" "zenmind-voice-server" || return 1
+  zenmind_release_start_service "$version_dir" "agent-webclient" || return 1
+  zenmind_release_start_weixin_bridge_if_configured "$version_dir" || return 1
   zenmind_release_start_service "$version_dir" "zenmind-gateway" || return 1
 
   zenmind_release_verify_http "http://127.0.0.1:${gateway_port}/healthz" "gateway health" || return 1
