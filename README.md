@@ -118,6 +118,7 @@ release 模式默认使用 monorepo 根目录：
 
 ```bash
 ./setup-mac.sh --action check
+./setup-mac.sh --action setup-guide --release --manifest https://www.zenmind.cc/install/manifest.json
 ./setup-mac.sh --action configure --web
 ./setup-mac.sh --action install --source --manifest ./dist/v0.1
 ./setup-mac.sh --action install --release --manifest ./dist/v0.1
@@ -172,6 +173,15 @@ Windows 主系统不再支持直接安装；请进入 WSL 后使用 `setup-win-w
 - 解压 bundle，初始化缺失配置
 - 尽量保留已有 live config
 - 写入 `install-state.json`
+
+### `setup-guide --release`
+
+- 当前用于 macOS 首次一键安装
+- 固定分成 `preflight -> prepare -> host-permission-gate -> core-deploy -> browser-setup -> verify`
+- 首次浏览器向导只收集最小必填项，并写入 `../.zenmind/install-profile.json`
+- 安装状态会把 `phase / browserSetupCompleted / permissionChecks / lastError` 写回 `install-state.json`
+- 如果 `container-hub` 或 `term-webclient-server` 被 macOS 隐私与安全拦截，会暂停在 `host-permission-gate`
+- 重新执行同一条安装命令时，会按 `install-state.json.phase` 自动恢复，不重做已完成阶段
 
 ### `upgrade --source`
 

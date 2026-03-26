@@ -63,6 +63,45 @@ test("writeInstallState persists normalized file in monorepo .zenmind", () => {
   const saved = normalizeInstallState(JSON.parse(fs.readFileSync(statePath, "utf8")));
   assert.equal(saved.installMode, "release");
   assert.equal(saved.release.activeVersionDir, path.join(root, "release", "v0.2.0"));
+  assert.equal(saved.phase, "complete");
+  assert.equal(saved.browserSetupCompleted, true);
+});
+
+test("normalizeInstallState keeps setup-guide recovery fields", () => {
+  const state = normalizeInstallState({
+    schemaVersion: 2,
+    installMode: "release",
+    channel: "stable",
+    currentVersion: "v0.2.0",
+    previousVersion: "",
+    manifestSource: "https://example.com/manifest.json",
+    phase: "browser-setup",
+    isFreshInstall: true,
+    browserSetupCompleted: false,
+    permissionChecks: {
+      containerHub: "approved",
+      termWebclientServer: "pending"
+    },
+    profilePath: "/tmp/config/zenmind.profile.local.json",
+    installProfilePath: "/tmp/.zenmind/install-profile.json",
+    completedSteps: ["preflight", "prepare"],
+    lastError: "permission blocked",
+    release: {
+      installRoot: "/tmp/release",
+      activeVersionDir: "/tmp/release/v0.2.0",
+      stagedVersionDir: ""
+    }
+  });
+
+  assert.equal(state.phase, "browser-setup");
+  assert.equal(state.isFreshInstall, true);
+  assert.equal(state.browserSetupCompleted, false);
+  assert.equal(state.permissionChecks.containerHub, "approved");
+  assert.equal(state.permissionChecks.termWebclientServer, "pending");
+  assert.equal(state.profilePath, "/tmp/config/zenmind.profile.local.json");
+  assert.equal(state.installProfilePath, "/tmp/.zenmind/install-profile.json");
+  assert.deepEqual(state.completedSteps, ["preflight", "prepare"]);
+  assert.equal(state.lastError, "permission blocked");
 });
 
 test("resolveManifestReference accepts local version directories", () => {

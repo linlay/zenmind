@@ -26,6 +26,7 @@ const DEFAULT_PROFILE = {
   admin: {
     enabled: true,
     webEnabled: true,
+    adminUsername: "admin",
     frontendPort: 11950,
     webPasswordBcrypt: "",
     appMasterPasswordBcrypt: ""
@@ -33,6 +34,7 @@ const DEFAULT_PROFILE = {
   pan: {
     enabled: true,
     webEnabled: true,
+    adminUsername: "admin",
     frontendPort: 11946,
     webPasswordBcrypt: "",
     webSessionSecret: ""
@@ -40,8 +42,14 @@ const DEFAULT_PROFILE = {
   term: {
     enabled: true,
     webEnabled: true,
+    authUsername: "admin",
     frontendPort: 11947,
     webPasswordBcrypt: ""
+  },
+  llm: {
+    primaryProviderKey: "",
+    primaryModelKey: "",
+    primaryApiKey: ""
   },
   mcp: {
     enabled: true
@@ -249,6 +257,7 @@ function normalizeProfile(rawProfile) {
       admin: {
         enabled: Boolean(rawProfile?.admin?.enabled ?? DEFAULT_PROFILE.admin.enabled),
         webEnabled: Boolean(rawProfile?.admin?.webEnabled ?? rawProfile?.admin?.publicEnabled ?? DEFAULT_PROFILE.admin.webEnabled),
+        adminUsername: String(rawProfile?.admin?.adminUsername || DEFAULT_PROFILE.admin.adminUsername).trim() || DEFAULT_PROFILE.admin.adminUsername,
         frontendPort: rawProfile?.admin?.frontendPort ?? DEFAULT_PROFILE.admin.frontendPort,
         webPasswordBcrypt: getImportedBcryptValue(rawProfile?.admin?.webPasswordBcrypt || rawProfile?.admin?.adminPassword),
         appMasterPasswordBcrypt: getImportedBcryptValue(rawProfile?.admin?.appMasterPasswordBcrypt || rawProfile?.admin?.appMasterPassword)
@@ -256,6 +265,7 @@ function normalizeProfile(rawProfile) {
       pan: {
         enabled: Boolean(rawProfile?.pan?.enabled ?? DEFAULT_PROFILE.pan.enabled),
         webEnabled: Boolean(rawProfile?.pan?.webEnabled ?? DEFAULT_PROFILE.pan.webEnabled),
+        adminUsername: String(rawProfile?.pan?.adminUsername || rawProfile?.admin?.adminUsername || DEFAULT_PROFILE.pan.adminUsername).trim() || DEFAULT_PROFILE.pan.adminUsername,
         frontendPort: rawProfile?.pan?.frontendPort ?? DEFAULT_PROFILE.pan.frontendPort,
         webPasswordBcrypt: getImportedBcryptValue(rawProfile?.pan?.webPasswordBcrypt || rawProfile?.pan?.webPassword),
         webSessionSecret: String(rawProfile?.pan?.webSessionSecret || "")
@@ -263,8 +273,14 @@ function normalizeProfile(rawProfile) {
       term: {
         enabled: Boolean(rawProfile?.term?.enabled ?? DEFAULT_PROFILE.term.enabled),
         webEnabled: Boolean(rawProfile?.term?.webEnabled ?? DEFAULT_PROFILE.term.webEnabled),
+        authUsername: String(rawProfile?.term?.authUsername || rawProfile?.admin?.adminUsername || DEFAULT_PROFILE.term.authUsername).trim() || DEFAULT_PROFILE.term.authUsername,
         frontendPort: rawProfile?.term?.frontendPort ?? DEFAULT_PROFILE.term.frontendPort,
         webPasswordBcrypt: getImportedBcryptValue(rawProfile?.term?.webPasswordBcrypt || rawProfile?.term?.webPassword)
+      },
+      llm: {
+        primaryProviderKey: String(rawProfile?.llm?.primaryProviderKey || "").trim(),
+        primaryModelKey: String(rawProfile?.llm?.primaryModelKey || "").trim(),
+        primaryApiKey: String(rawProfile?.llm?.primaryApiKey || "")
       },
       mcp: {
         enabled: Boolean(rawProfile?.mcp?.enabled ?? DEFAULT_PROFILE.mcp.enabled)
@@ -309,6 +325,7 @@ function normalizeProfile(rawProfile) {
     admin: {
       enabled: Boolean(rawProfile?.services?.zenmindAppServer?.enabled ?? DEFAULT_PROFILE.admin.enabled),
       webEnabled: Boolean(rawProfile?.access?.adminPublicEnabled ?? DEFAULT_PROFILE.admin.webEnabled),
+      adminUsername: String(rawProfile?.services?.zenmindAppServer?.adminUsername || DEFAULT_PROFILE.admin.adminUsername).trim() || DEFAULT_PROFILE.admin.adminUsername,
       frontendPort: rawProfile?.services?.zenmindAppServer?.frontendPort ?? DEFAULT_PROFILE.admin.frontendPort,
       webPasswordBcrypt: getImportedBcryptValue(rawProfile?.services?.zenmindAppServer?.adminPassword),
       appMasterPasswordBcrypt: getImportedBcryptValue(rawProfile?.services?.zenmindAppServer?.appMasterPassword)
@@ -316,6 +333,7 @@ function normalizeProfile(rawProfile) {
     pan: {
       enabled: Boolean(rawProfile?.services?.panWebclient?.enabled ?? DEFAULT_PROFILE.pan.enabled),
       webEnabled: Boolean(rawProfile?.access?.panWebEnabled ?? DEFAULT_PROFILE.pan.webEnabled),
+      adminUsername: String(rawProfile?.services?.panWebclient?.adminUsername || rawProfile?.services?.zenmindAppServer?.adminUsername || DEFAULT_PROFILE.pan.adminUsername).trim() || DEFAULT_PROFILE.pan.adminUsername,
       frontendPort: rawProfile?.services?.panWebclient?.frontendPort ?? DEFAULT_PROFILE.pan.frontendPort,
       webPasswordBcrypt: getImportedBcryptValue(rawProfile?.services?.panWebclient?.webPassword),
       webSessionSecret: String(rawProfile?.services?.panWebclient?.webSessionSecret || "")
@@ -323,8 +341,14 @@ function normalizeProfile(rawProfile) {
     term: {
       enabled: Boolean(rawProfile?.services?.termWebclient?.enabled ?? DEFAULT_PROFILE.term.enabled),
       webEnabled: Boolean(rawProfile?.access?.termWebEnabled ?? DEFAULT_PROFILE.term.webEnabled),
+      authUsername: String(rawProfile?.services?.termWebclient?.authUsername || rawProfile?.services?.zenmindAppServer?.adminUsername || DEFAULT_PROFILE.term.authUsername).trim() || DEFAULT_PROFILE.term.authUsername,
       frontendPort: rawProfile?.services?.termWebclient?.frontendPort ?? DEFAULT_PROFILE.term.frontendPort,
       webPasswordBcrypt: getImportedBcryptValue(rawProfile?.services?.termWebclient?.webPassword)
+    },
+    llm: {
+      primaryProviderKey: String(rawProfile?.llm?.primaryProviderKey || "").trim(),
+      primaryModelKey: String(rawProfile?.llm?.primaryModelKey || "").trim(),
+      primaryApiKey: String(rawProfile?.llm?.primaryApiKey || "")
     },
     mcp: {
       enabled: legacyMcpEnabled || rawProfile?.mcp?.enabled === true || DEFAULT_PROFILE.mcp.enabled
@@ -362,6 +386,7 @@ function serializeProfile(profile) {
     admin: {
       enabled: normalized.admin.enabled,
       webEnabled: normalized.admin.webEnabled,
+      adminUsername: normalized.admin.adminUsername,
       frontendPort: normalized.admin.frontendPort,
       webPasswordBcrypt: normalized.admin.webPasswordBcrypt,
       appMasterPasswordBcrypt: normalized.admin.appMasterPasswordBcrypt
@@ -369,6 +394,7 @@ function serializeProfile(profile) {
     pan: {
       enabled: normalized.pan.enabled,
       webEnabled: normalized.pan.webEnabled,
+      adminUsername: normalized.pan.adminUsername,
       frontendPort: normalized.pan.frontendPort,
       webPasswordBcrypt: normalized.pan.webPasswordBcrypt,
       webSessionSecret: normalized.pan.webSessionSecret
@@ -376,8 +402,14 @@ function serializeProfile(profile) {
     term: {
       enabled: normalized.term.enabled,
       webEnabled: normalized.term.webEnabled,
+      authUsername: normalized.term.authUsername,
       frontendPort: normalized.term.frontendPort,
       webPasswordBcrypt: normalized.term.webPasswordBcrypt
+    },
+    llm: {
+      primaryProviderKey: normalized.llm.primaryProviderKey,
+      primaryModelKey: normalized.llm.primaryModelKey,
+      primaryApiKey: normalized.llm.primaryApiKey
     },
     mcp: {
       enabled: normalized.mcp.enabled

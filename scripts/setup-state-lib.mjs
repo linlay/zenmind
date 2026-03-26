@@ -6,7 +6,7 @@ import process from "node:process";
 import { execFileSync } from "node:child_process";
 
 export const DEFAULT_REMOTE_MANIFEST_URL = "https://www.zenmind.cc/install/manifest.json";
-export const INSTALL_STATE_SCHEMA_VERSION = 1;
+export const INSTALL_STATE_SCHEMA_VERSION = 2;
 export const RELEASE_MANIFEST_SCHEMA_VERSION = 1;
 
 const SOURCE_REPOS = [
@@ -99,6 +99,28 @@ function detectArtifactDetailsFromName(fileName) {
 
 function trimString(value, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
+}
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => trimString(item))
+    .filter(Boolean);
+}
+
+function normalizePermissionChecks(rawValue) {
+  if (!rawValue || typeof rawValue !== "object") {
+    return {
+      containerHub: "",
+      termWebclientServer: ""
+    };
+  }
+  return {
+    containerHub: trimString(rawValue.containerHub || ""),
+    termWebclientServer: trimString(rawValue.termWebclientServer || "")
+  };
 }
 
 function normalizeArtifact(rawArtifact) {
@@ -288,6 +310,14 @@ export function normalizeInstallState(rawState) {
   assert(rawState && typeof rawState === "object", "install state must be an object");
   const installMode = trimString(rawState.installMode);
   assert(installMode === "source" || installMode === "release", "installMode must be source or release");
+  const currentVersion = trimString(rawState.currentVersion || "");
+  const explicitPhase = trimString(rawState.phase || "");
+  const explicitBrowserSetupCompleted = rawState.browserSetupCompleted;
+  const hasCompletedReleaseInstall = installMode === "release" && Boolean(currentVersion);
+  const phase = explicitPhase || (hasCompletedReleaseInstall ? "complete" : "");
+  const browserSetupCompleted = typeof explicitBrowserSetupCompleted === "boolean"
+    ? explicitBrowserSetupCompleted
+    : hasCompletedReleaseInstall;
 
   return {
     schemaVersion: Number.isInteger(rawState.schemaVersion)
@@ -295,12 +325,22 @@ export function normalizeInstallState(rawState) {
       : INSTALL_STATE_SCHEMA_VERSION,
     installMode,
     channel: trimString(rawState.channel || "stable"),
-    currentVersion: trimString(rawState.currentVersion || ""),
+    currentVersion,
     previousVersion: trimString(rawState.previousVersion || ""),
     manifestSource: trimString(rawState.manifestSource || ""),
     lastCheckedAt: trimString(rawState.lastCheckedAt || ""),
     lastInstalledAt: trimString(rawState.lastInstalledAt || ""),
     lastUpgradedAt: trimString(rawState.lastUpgradedAt || ""),
+    phase,
+    isFreshInstall: typeof rawState.isFreshInstall === "boolean"
+      ? rawState.isFreshInstall
+      : !trimString(rawState.previousVersion || ""),
+    browserSetupCompleted,
+    permissionChecks: normalizePermissionChecks(rawState.permissionChecks),
+    profilePath: trimString(rawState.profilePath || ""),
+    installProfilePath: trimString(rawState.installProfilePath || ""),
+    completedSteps: normalizeStringArray(rawState.completedSteps),
+    lastError: trimString(rawState.lastError || ""),
     source: installMode === "source" && rawState.source && typeof rawState.source === "object"
       ? {
           reposRoot: trimString(rawState.source.reposRoot || ""),

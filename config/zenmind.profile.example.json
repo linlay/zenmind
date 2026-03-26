@@ -26,6 +26,7 @@
   "admin": {
     "enabled": true,
     "webEnabled": true,
+    "adminUsername": "admin",
     "frontendPort": 11950,
     "webPasswordBcrypt": "",
     "appMasterPasswordBcrypt": ""
@@ -33,6 +34,7 @@
   "pan": {
     "enabled": true,
     "webEnabled": true,
+    "adminUsername": "admin",
     "frontendPort": 11946,
     "webPasswordBcrypt": "",
     "webSessionSecret": ""
@@ -40,8 +42,14 @@
   "term": {
     "enabled": true,
     "webEnabled": true,
+    "authUsername": "admin",
     "frontendPort": 11947,
     "webPasswordBcrypt": ""
+  },
+  "llm": {
+    "primaryProviderKey": "",
+    "primaryModelKey": "",
+    "primaryApiKey": ""
   },
   "mcp": {
     "enabled": true

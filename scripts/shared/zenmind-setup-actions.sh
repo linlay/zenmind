@@ -49,6 +49,10 @@ zenmind_install_state_path() {
   printf '%s/.zenmind/install-state.json\n' "$(zenmind_repo_root_path)"
 }
 
+zenmind_install_profile_path() {
+  printf '%s/.zenmind/install-profile.json\n' "$(zenmind_repo_root_path)"
+}
+
 zenmind_release_root_path() {
   printf '%s/release\n' "$(zenmind_repo_root_path)"
 }
@@ -142,6 +146,207 @@ zenmind_state_exists() {
 zenmind_state_write_from_file() {
   local input_file="$1"
   node "$(zenmind_setup_state_cli_path)" state-write --workspace-root "$SCRIPT_DIR" <"$input_file" >/dev/null
+}
+
+zenmind_state_patch_json() {
+  local patch_json="${1:-\{\}}"
+  local tmp_file
+  tmp_file="$(mktemp)"
+  node --input-type=module - "$(zenmind_install_state_path)" "$patch_json" "$(zenmind_release_root_path)" "${MANIFEST_SOURCE_ARG:-}" "$(zenmind_profile_path)" "$(zenmind_install_profile_path)" <<'NODE' >"$tmp_file"
+import fs from "node:fs";
+
+const [
+  statePath,
+  patchJson,
+  releaseRoot,
+  manifestSource,
+  profilePath,
+  installProfilePath
+] = process.argv.slice(2);
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function deepMerge(base, patch) {
+  if (Array.isArray(base)) {
+    return Array.isArray(patch) ? clone(patch) : clone(base);
+  }
+  if (!base || typeof base !== "object") {
+    return patch === undefined ? base : clone(patch);
+  }
+  const result = { ...base };
+  for (const [key, value] of Object.entries(patch || {})) {
+    if (value && typeof value === "object" && !Array.isArray(value) && base[key] && typeof base[key] === "object" && !Array.isArray(base[key])) {
+      result[key] = deepMerge(base[key], value);
+      continue;
+    }
+    result[key] = clone(value);
+  }
+  return result;
+}
+
+const baseState = fs.existsSync(statePath)
+  ? JSON.parse(fs.readFileSync(statePath, "utf8"))
+  : {
+      schemaVersion: 2,
+      installMode: "release",
+      channel: "stable",
+      currentVersion: "",
+      previousVersion: "",
+      manifestSource,
+      lastCheckedAt: "",
+      lastInstalledAt: "",
+      lastUpgradedAt: "",
+      phase: "",
+      isFreshInstall: true,
+      browserSetupCompleted: false,
+      permissionChecks: {
+        containerHub: "",
+        termWebclientServer: ""
+      },
+      profilePath,
+      installProfilePath,
+      completedSteps: [],
+      lastError: "",
+      release: {
+        installRoot: releaseRoot,
+        activeVersionDir: "",
+        stagedVersionDir: ""
+      }
+    };
+const patch = JSON.parse(patchJson || "{}");
+const nextState = deepMerge(baseState, patch);
+if (!nextState.profilePath) {
+  nextState.profilePath = profilePath;
+}
+if (!nextState.installProfilePath) {
+  nextState.installProfilePath = installProfilePath;
+}
+if (!nextState.release || typeof nextState.release !== "object") {
+  nextState.release = {
+    installRoot: releaseRoot,
+    activeVersionDir: "",
+    stagedVersionDir: ""
+  };
+}
+if (!nextState.release.installRoot) {
+  nextState.release.installRoot = releaseRoot;
+}
+process.stdout.write(JSON.stringify(nextState, null, 2));
+NODE
+  zenmind_state_write_from_file "$tmp_file"
+  rm -f "$tmp_file"
+}
+
+zenmind_state_get() {
+  local dotted_path="$1"
+  local state_file
+  state_file="$(mktemp)"
+  if ! zenmind_state_read_to_file "$state_file"; then
+    rm -f "$state_file"
+    return 1
+  fi
+  zenmind_json_get "$state_file" "$dotted_path"
+  rm -f "$state_file"
+}
+
+zenmind_setup_state_bootstrap_release() {
+  local previous_active previous_version is_fresh manifest_source
+  previous_active="$(zenmind_state_get "release.activeVersionDir" 2>/dev/null || true)"
+  previous_version="$(zenmind_state_get "currentVersion" 2>/dev/null || true)"
+  manifest_source="${MANIFEST_SOURCE_ARG:-$(zenmind_state_get "manifestSource" 2>/dev/null || true)}"
+  is_fresh="true"
+  if [[ -n "$previous_active" || -n "$previous_version" ]]; then
+    is_fresh="false"
+  fi
+  zenmind_state_patch_json "$(node --input-type=module - "$previous_version" "$previous_active" "$manifest_source" "$is_fresh" "$(zenmind_profile_path)" "$(zenmind_install_profile_path)" <<'NODE'
+const [
+  previousVersion,
+  activeVersionDir,
+  manifestSource,
+  isFreshInstall,
+  profilePath,
+  installProfilePath
+] = process.argv.slice(2);
+
+process.stdout.write(JSON.stringify({
+  schemaVersion: 2,
+  installMode: "release",
+  channel: "stable",
+  previousVersion,
+  manifestSource,
+  phase: "preflight",
+  isFreshInstall: isFreshInstall === "true",
+  browserSetupCompleted: false,
+  permissionChecks: {
+    containerHub: "",
+    termWebclientServer: ""
+  },
+  profilePath,
+  installProfilePath,
+  completedSteps: [],
+  lastError: "",
+  release: {
+    activeVersionDir
+  }
+}));
+NODE
+)"
+}
+
+zenmind_setup_state_set_phase() {
+  local phase="$1"
+  zenmind_state_patch_json "$(node --input-type=module - "$phase" <<'NODE'
+const [phase] = process.argv.slice(2);
+process.stdout.write(JSON.stringify({
+  phase,
+  lastError: ""
+}));
+NODE
+)"
+}
+
+zenmind_setup_state_mark_step() {
+  local step="$1"
+  local phase="${2:-$step}"
+  local tmp_file
+  tmp_file="$(mktemp)"
+  node --input-type=module - "$(zenmind_install_state_path)" "$step" "$phase" <<'NODE' >"$tmp_file"
+import fs from "node:fs";
+
+const [statePath, step, phase] = process.argv.slice(2);
+const state = fs.existsSync(statePath)
+  ? JSON.parse(fs.readFileSync(statePath, "utf8"))
+  : {};
+const completedSteps = Array.isArray(state.completedSteps) ? [...state.completedSteps] : [];
+if (step && !completedSteps.includes(step)) {
+  completedSteps.push(step);
+}
+state.phase = phase;
+state.lastError = "";
+state.completedSteps = completedSteps;
+process.stdout.write(JSON.stringify(state, null, 2));
+NODE
+  zenmind_state_write_from_file "$tmp_file"
+  rm -f "$tmp_file"
+}
+
+zenmind_setup_state_mark_failure() {
+  local phase="$1"
+  local message="$2"
+  zenmind_state_patch_json "$(node --input-type=module - "$phase" "$message" <<'NODE'
+const [phase, message] = process.argv.slice(2);
+process.stdout.write(JSON.stringify({
+  phase,
+  lastError: message
+}));
+NODE
+)"
+}
+
+zenmind_setup_state_mark_complete() {
+  zenmind_state_patch_json '{"phase":"complete","browserSetupCompleted":true,"lastError":""}'
 }
 
 zenmind_state_infer_source_to_file() {
@@ -1185,6 +1390,109 @@ zenmind_release_verify_runner_agents() {
   return 1
 }
 
+zenmind_release_term_backend_binary_path() {
+  local version_dir="$1"
+  local service_dir bundle_env backend_binary
+  service_dir="$(zenmind_release_service_dir "$version_dir" "term-webclient")"
+  bundle_env="$service_dir/bundle.env"
+  backend_binary="backend/term-web-backend"
+
+  if [[ -f "$bundle_env" ]]; then
+    backend_binary="$(awk -F= '$1=="BACKEND_BINARY" {print $2; exit}' "$bundle_env" | tr -d "\"'")"
+    [[ -n "$backend_binary" ]] || backend_binary="backend/term-web-backend"
+  fi
+
+  printf '%s/%s\n' "$service_dir" "$backend_binary"
+}
+
+zenmind_release_permission_probe_blocked() {
+  local output="$1"
+  case "$output" in
+    *"Operation not permitted"*|*"not permitted while System Integrity Protection is engaged"*|*"developer cannot be verified"*|*"developer could not be verified"*|*"Apple could not verify"*|*"malicious software"*|*"killed"*|*"Killed: 9"*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+zenmind_release_probe_host_binary() {
+  local binary_path="$1"
+  local label="$2"
+  local output status
+
+  [[ -e "$binary_path" ]] || {
+    zenmind_summary_add_fail "missing required host binary for ${label}: ${binary_path}"
+    return 1
+  }
+
+  set +e
+  output="$("$binary_path" --help 2>&1)"
+  status=$?
+  set -e
+  if [[ "$status" -eq 0 ]]; then
+    return 0
+  fi
+  if zenmind_release_permission_probe_blocked "$output"; then
+    return 2
+  fi
+  return 0
+}
+
+zenmind_release_host_permission_gate() {
+  local version_dir="$1"
+  local container_hub_binary term_backend_binary blocked=0
+
+  if [[ "$(zenmind_host_os)" != "darwin" ]]; then
+    return 0
+  fi
+
+  container_hub_binary="$(zenmind_release_service_dir "$version_dir" "agent-container-hub")/agent-container-hub"
+  term_backend_binary="$(zenmind_release_term_backend_binary_path "$version_dir")"
+
+  if zenmind_release_probe_host_binary "$container_hub_binary" "container-hub"; then
+    zenmind_state_patch_json '{"permissionChecks":{"containerHub":"approved"}}'
+  else
+    case "$?" in
+      2)
+        zenmind_state_patch_json '{"permissionChecks":{"containerHub":"blocked"}}'
+        zenmind_summary_add_fail "macOS blocked container-hub on first launch"
+        blocked=1
+        ;;
+      *)
+        zenmind_state_patch_json '{"permissionChecks":{"containerHub":"unknown"}}'
+        zenmind_summary_add_fail "failed to probe container-hub permissions"
+        blocked=1
+        ;;
+    esac
+  fi
+
+  if zenmind_release_probe_host_binary "$term_backend_binary" "term-webclient-server"; then
+    zenmind_state_patch_json '{"permissionChecks":{"termWebclientServer":"approved"}}'
+  else
+    case "$?" in
+      2)
+        zenmind_state_patch_json '{"permissionChecks":{"termWebclientServer":"blocked"}}'
+        zenmind_summary_add_fail "macOS blocked term-webclient-server on first launch"
+        blocked=1
+        ;;
+      *)
+        zenmind_state_patch_json '{"permissionChecks":{"termWebclientServer":"unknown"}}'
+        zenmind_summary_add_fail "failed to probe term-webclient-server permissions"
+        blocked=1
+        ;;
+    esac
+  fi
+
+  if [[ "$blocked" == "1" ]]; then
+    zenmind_summary_add_warn "open System Settings > Privacy & Security, allow the blocked apps, then rerun the same install command to resume"
+    return 1
+  fi
+
+  zenmind_summary_add_ok "macOS host permission gate passed for container-hub and term-webclient-server"
+}
+
 zenmind_current_release_version_dir() {
   local state_file
   state_file="$(mktemp)"
@@ -1256,6 +1564,116 @@ if (!adminWeb || !appMaster) {
   process.exit(1);
 }
 NODE
+}
+
+zenmind_install_profile_ready() {
+  local install_profile_path="${1:-$(zenmind_install_profile_path)}"
+  node --input-type=module - "$install_profile_path" <<'NODE'
+import fs from "node:fs";
+
+const installProfilePath = process.argv[2];
+if (!fs.existsSync(installProfilePath)) {
+  process.exit(1);
+}
+const profile = JSON.parse(fs.readFileSync(installProfilePath, "utf8"));
+for (const key of ["siteName", "adminUsername", "adminPassword", "primaryProvider", "primaryModel", "primaryApiKey"]) {
+  if (!String(profile?.[key] || "").trim()) {
+    process.exit(1);
+  }
+}
+NODE
+}
+
+zenmind_ensure_bootstrap_profile() {
+  local profile_path credentials_file
+  profile_path="$(zenmind_profile_path)"
+  credentials_file="${HOME}/.zenmind-credentials.txt"
+  if [[ -f "$profile_path" ]] && zenmind_profile_has_passwords "$profile_path"; then
+    return 0
+  fi
+  if node "${SCRIPT_DIR}/scripts/generate-default-profile.mjs" --workspace-root "$SCRIPT_DIR" --profile "$profile_path" --credentials-file "$credentials_file"; then
+    zenmind_summary_add_warn "generated temporary bootstrap profile for guided install: ${profile_path}"
+    return 0
+  fi
+  zenmind_summary_add_fail "failed to generate temporary bootstrap profile"
+  return 1
+}
+
+zenmind_open_install_wizard() {
+  local version_dir="$1"
+  local ready_file server_log wizard_url wizard_pid
+  ready_file="$(mktemp)"
+  server_log="$(mktemp)"
+  node "${SCRIPT_DIR}/scripts/install-wizard-server.mjs" \
+    --workspace-root "$SCRIPT_DIR" \
+    --version-dir "$version_dir" \
+    --install-profile "$(zenmind_install_profile_path)" \
+    --ready-file "$ready_file" >"$server_log" 2>&1 &
+  wizard_pid=$!
+
+  for _ in $(seq 1 100); do
+    if [[ -f "$ready_file" ]]; then
+      break
+    fi
+    if ! kill -0 "$wizard_pid" >/dev/null 2>&1; then
+      zenmind_summary_add_fail "install wizard server failed to start; see ${server_log}"
+      rm -f "$ready_file"
+      return 1
+    fi
+    sleep 0.1
+  done
+
+  [[ -f "$ready_file" ]] || {
+    zenmind_summary_add_fail "install wizard server did not become ready"
+    rm -f "$ready_file"
+    return 1
+  }
+
+  wizard_url="$(cat "$ready_file")"
+  rm -f "$ready_file"
+  zenmind_open_browser_url "$wizard_url" || zenmind_summary_add_warn "failed to auto-open install wizard"
+  zenmind_summary_add_ok "install wizard: ${wizard_url}"
+  ZENMIND_INSTALL_WIZARD_PID="$wizard_pid"
+  ZENMIND_INSTALL_WIZARD_LOG="$server_log"
+}
+
+zenmind_wait_for_install_wizard() {
+  local wizard_pid="${ZENMIND_INSTALL_WIZARD_PID:-}"
+  local install_profile_path
+  install_profile_path="$(zenmind_install_profile_path)"
+  echo
+  echo "请在浏览器中完成首次配置，保存后终端会继续安装。"
+  echo "安装配置文件: ${install_profile_path}"
+
+  while true; do
+    if zenmind_install_profile_ready "$install_profile_path"; then
+      if [[ -n "$wizard_pid" ]]; then
+        wait "$wizard_pid" >/dev/null 2>&1 || true
+      fi
+      zenmind_summary_add_ok "first-install profile saved: ${install_profile_path}"
+      return 0
+    fi
+
+    if [[ -n "$wizard_pid" ]] && ! kill -0 "$wizard_pid" >/dev/null 2>&1; then
+      zenmind_summary_add_fail "install wizard exited before saving configuration; see ${ZENMIND_INSTALL_WIZARD_LOG:-unknown log}"
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+zenmind_apply_install_profile() {
+  local version_dir="$1"
+  if node "${SCRIPT_DIR}/scripts/apply-install-profile.mjs" \
+    --workspace-root "$SCRIPT_DIR" \
+    --install-profile "$(zenmind_install_profile_path)" \
+    --profile "$(zenmind_profile_path)" \
+    --version-dir "$version_dir"; then
+    zenmind_summary_add_ok "applied guided install profile to release bundle: ${version_dir}"
+    return 0
+  fi
+  zenmind_summary_add_fail "failed to apply guided install profile to release bundle: ${version_dir}"
+  return 1
 }
 
 zenmind_release_apply_profile_to_version() {
@@ -1332,7 +1750,10 @@ zenmind_apply_release_config() {
     }
   fi
   zenmind_ensure_profile
-  zenmind_release_apply_profile_to_version "$version_dir"
+  zenmind_release_apply_profile_to_version "$version_dir" || return 1
+  if zenmind_install_profile_ready "$(zenmind_install_profile_path)" >/dev/null 2>&1; then
+    zenmind_apply_install_profile "$version_dir" || return 1
+  fi
 }
 
 zenmind_print_access_summary() {
@@ -1373,12 +1794,118 @@ zenmind_print_access_summary() {
 }
 
 zenmind_run_setup_guide() {
-  zenmind_run_install_release || return 1
-  zenmind_open_config_studio || return 1
-  zenmind_wait_for_profile || return 1
-  zenmind_apply_release_config "$ZENMIND_PREPARED_RELEASE_VERSION_DIR" || return 1
-  zenmind_release_start_version "$ZENMIND_PREPARED_RELEASE_VERSION_DIR" || return 1
-  zenmind_print_access_summary
+  local phase install_mode version_dir target_version manifest_source
+
+  install_mode="$(zenmind_resolve_install_mode_from_state 2>/dev/null || true)"
+  phase="$(zenmind_state_get "phase" 2>/dev/null || true)"
+  if [[ "$install_mode" != "release" || -z "$phase" || "$phase" == "complete" ]]; then
+    zenmind_setup_state_bootstrap_release || return 1
+    phase="preflight"
+  fi
+
+  if [[ "$phase" == "preflight" ]]; then
+    zenmind_setup_state_set_phase "preflight"
+    if ! zenmind_run_check; then
+      zenmind_setup_state_mark_failure "preflight" "environment check reported blockers"
+      return 1
+    fi
+    zenmind_setup_state_mark_step "preflight" "prepare"
+    phase="prepare"
+  fi
+
+  if [[ "$phase" == "prepare" ]]; then
+    zenmind_setup_state_set_phase "prepare"
+    if ! zenmind_prepare_release_workspace; then
+      zenmind_setup_state_mark_failure "prepare" "failed to prepare release workspace"
+      return 1
+    fi
+    version_dir="$ZENMIND_PREPARED_RELEASE_VERSION_DIR"
+    target_version="$ZENMIND_PREPARED_RELEASE_TARGET_VERSION"
+    manifest_source="$ZENMIND_PREPARED_RELEASE_MANIFEST_SOURCE"
+    zenmind_state_patch_json "$(node --input-type=module - "$target_version" "$manifest_source" "$version_dir" <<'NODE'
+const [currentVersion, manifestSource, activeVersionDir] = process.argv.slice(2);
+process.stdout.write(JSON.stringify({
+  currentVersion,
+  manifestSource,
+  lastInstalledAt: new Date().toISOString(),
+  browserSetupCompleted: false,
+  release: {
+    activeVersionDir,
+    stagedVersionDir: ""
+  }
+}));
+NODE
+)"
+    zenmind_summary_add_ok "prepared release workspace: ${version_dir}"
+    zenmind_setup_state_mark_step "prepare" "host-permission-gate"
+    phase="host-permission-gate"
+  fi
+
+  version_dir="${version_dir:-$(zenmind_state_get "release.activeVersionDir" 2>/dev/null || true)}"
+  [[ -n "$version_dir" ]] || {
+    zenmind_setup_state_mark_failure "${phase:-prepare}" "release workspace is missing from install state"
+    zenmind_summary_add_fail "release workspace is missing from install state"
+    return 1
+  }
+
+  if [[ "$phase" == "host-permission-gate" ]]; then
+    zenmind_setup_state_set_phase "host-permission-gate"
+    if ! zenmind_release_host_permission_gate "$version_dir"; then
+      zenmind_setup_state_mark_failure "host-permission-gate" "macOS host permission approval is required"
+      return 1
+    fi
+    zenmind_setup_state_mark_step "host-permission-gate" "core-deploy"
+    phase="core-deploy"
+  fi
+
+  if [[ "$phase" == "core-deploy" ]]; then
+    zenmind_setup_state_set_phase "core-deploy"
+    zenmind_ensure_bootstrap_profile || {
+      zenmind_setup_state_mark_failure "core-deploy" "failed to generate bootstrap profile"
+      return 1
+    }
+    zenmind_release_apply_profile_to_version "$version_dir" || {
+      zenmind_setup_state_mark_failure "core-deploy" "failed to apply bootstrap profile"
+      return 1
+    }
+    zenmind_release_start_version "$version_dir" || {
+      zenmind_setup_state_mark_failure "core-deploy" "failed to start bootstrap release stack"
+      return 1
+    }
+    zenmind_setup_state_mark_step "core-deploy" "browser-setup"
+    phase="browser-setup"
+  fi
+
+  if [[ "$phase" == "browser-setup" ]]; then
+    zenmind_setup_state_set_phase "browser-setup"
+    zenmind_open_install_wizard "$version_dir" || {
+      zenmind_setup_state_mark_failure "browser-setup" "failed to launch browser setup"
+      return 1
+    }
+    zenmind_wait_for_install_wizard || {
+      zenmind_setup_state_mark_failure "browser-setup" "install wizard did not save a valid profile"
+      return 1
+    }
+    zenmind_state_patch_json '{"browserSetupCompleted":true,"lastError":""}'
+    zenmind_setup_state_mark_step "browser-setup" "verify"
+    phase="verify"
+  fi
+
+  if [[ "$phase" == "verify" ]]; then
+    zenmind_setup_state_set_phase "verify"
+    zenmind_apply_install_profile "$version_dir" || {
+      zenmind_setup_state_mark_failure "verify" "failed to apply guided install profile"
+      return 1
+    }
+    zenmind_release_stop_version "$version_dir"
+    zenmind_release_start_version "$version_dir" || {
+      zenmind_setup_state_mark_failure "verify" "release verification restart failed"
+      return 1
+    }
+    zenmind_print_access_summary
+    zenmind_setup_state_mark_step "verify" "complete"
+    zenmind_setup_state_mark_complete
+  fi
 }
 
 zenmind_release_start_version() {
@@ -1592,7 +2119,7 @@ zenmind_release_prepare_version_dir() {
   ZENMIND_PREPARED_RELEASE_VERSION_DIR="$version_dir"
 }
 
-zenmind_run_install_release() {
+zenmind_prepare_release_workspace() {
   local manifest_file state_file target_version manifest_version manifest_source previous_active="" version_dir
 
   manifest_file="$(mktemp)"
@@ -1613,6 +2140,19 @@ zenmind_run_install_release() {
 
   zenmind_release_prepare_version_dir "$target_version" "$previous_active" "$manifest_source" || return 1
   version_dir="$ZENMIND_PREPARED_RELEASE_VERSION_DIR"
+  ZENMIND_PREPARED_RELEASE_TARGET_VERSION="$target_version"
+  ZENMIND_PREPARED_RELEASE_MANIFEST_SOURCE="$manifest_source"
+  ZENMIND_PREPARED_RELEASE_PREVIOUS_ACTIVE="$previous_active"
+  ZENMIND_PREPARED_RELEASE_VERSION_DIR="$version_dir"
+}
+
+zenmind_run_install_release() {
+  local version_dir target_version manifest_source
+
+  zenmind_prepare_release_workspace || return 1
+  version_dir="$ZENMIND_PREPARED_RELEASE_VERSION_DIR"
+  target_version="$ZENMIND_PREPARED_RELEASE_TARGET_VERSION"
+  manifest_source="$ZENMIND_PREPARED_RELEASE_MANIFEST_SOURCE"
   zenmind_release_state_write "$target_version" "" "$manifest_source" "$version_dir" "" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" ""
   zenmind_summary_add_ok "prepared release workspace: ${version_dir}"
   zenmind_summary_add_ok "recorded release install state: $(zenmind_install_state_path)"
