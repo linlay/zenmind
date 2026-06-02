@@ -30,7 +30,15 @@ ZenMind starts from a simple idea: the computer staying at home should become a 
 
 ## Screenshots
 
-> Placeholder: add Desktop, agent chat, service center, AGW UI, and mobile preview screenshots here.
+<div align="center">
+  <img src="./assets/screenshot-plan-approval.jpg" alt="ZenMind plan approval workflow" />
+  <br />
+  <br />
+  <img src="./assets/screenshot-deepseek-cache-hit.jpg" alt="ZenMind DeepSeek cache hit usage view" />
+  <br />
+  <br />
+  <img src="./assets/screenshot-user-approval.jpg" alt="ZenMind user approval workflow" />
+</div>
 
 ## One-Click Desktop
 
