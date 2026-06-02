@@ -18,7 +18,6 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
-config/zenmind.profile.local.json
 
 # Dependencies
 node_modules/

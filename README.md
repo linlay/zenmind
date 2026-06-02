@@ -12,6 +12,10 @@ ZenMind is a desktop-first AI agent platform for local, web, and mobile workflow
 
 It packages the core agent runtime into one Desktop experience, connects to modern Chinese model ecosystems such as DeepSeek V4, MiMo, MiniMax M3, and Qwen/Bailian, and exposes a custom AGW UI protocol for rich agent interaction.
 
+## About
+
+ZenMind starts from a simple idea: the computer staying at home should become a capable AI agent workspace, not just an idle machine. It is building toward an OpenClaw-inspired, desktop-first platform where local services, web clients, mobile clients, and Chinese model ecosystems work together through one protocol.
+
 ## Highlights
 
 - One Desktop app to install, initialize, start, stop, and monitor the ZenMind services.
