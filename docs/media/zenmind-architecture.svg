@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="ZenMind Desktop architecture">
+  <defs>
+    <linearGradient id="arch-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F7FBFF" />
+      <stop offset="55%" stop-color="#EFF7FF" />
+      <stop offset="100%" stop-color="#F6FFF8" />
+    </linearGradient>
+    <linearGradient id="arch-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00A2FF" />
+      <stop offset="100%" stop-color="#BB2BE2" />
+    </linearGradient>
+    <filter id="arch-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#16324F" flood-opacity="0.14" />
+    </filter>
+    <style>
+      .title { font: 700 42px Inter, Segoe UI, Arial, sans-serif; fill: #11243A; }
+      .subtitle { font: 500 17px Inter, Segoe UI, Arial, sans-serif; fill: #52677C; }
+      .desktop-title { font: 700 28px Inter, Segoe UI, Arial, sans-serif; fill: #FFFFFF; }
+      .desktop-subtitle { font: 500 15px Inter, Segoe UI, Arial, sans-serif; fill: #E7F6FF; }
+      .card-title { font: 700 19px Inter, Segoe UI, Arial, sans-serif; fill: #12263C; }
+      .card-copy { font: 500 13px Inter, Segoe UI, Arial, sans-serif; fill: #5B7084; }
+      .label { font: 700 12px Inter, Segoe UI, Arial, sans-serif; fill: #FFFFFF; letter-spacing: 0.8px; }
+      .line { stroke: #8FB2CE; stroke-width: 2.5; fill: none; }
+      .pill { fill: #102A43; opacity: 0.94; }
+    </style>
+  </defs>
+  <rect width="1280" height="720" rx="32" fill="url(#arch-bg)" />
+  <text x="72" y="82" class="title">ZenMind Desktop Architecture</text>
+  <text x="72" y="112" class="subtitle">One Desktop shell wraps identity, runtime, web client, and local sandbox services.</text>
+
+  <rect x="395" y="180" width="490" height="250" rx="28" fill="url(#arch-accent)" filter="url(#arch-shadow)" />
+  <circle cx="455" cy="245" r="30" fill="#FFFFFF" opacity="0.18" />
+  <circle cx="455" cy="245" r="18" fill="#FFFFFF" opacity="0.32" />
+  <text x="500" y="236" class="desktop-title">ZenMind Desktop</text>
+  <text x="500" y="264" class="desktop-subtitle">Install, initialize, launch, monitor, and embed services</text>
+  <rect x="430" y="315" width="176" height="40" rx="20" class="pill" />
+  <text x="461" y="340" class="label">ONE-CLICK SETUP</text>
+  <rect x="625" y="315" width="124" height="40" rx="20" class="pill" />
+  <text x="654" y="340" class="label">TOKEN BRIDGE</text>
+  <rect x="768" y="315" width="176" height="40" rx="20" class="pill" />
+  <text x="806" y="340" class="label">CONTROL CENTER</text>
+
+  <path class="line" d="M 395 270 C 300 260 272 180 214 170" />
+  <path class="line" d="M 395 365 C 300 376 272 500 214 510" />
+  <path class="line" d="M 885 270 C 982 260 1010 180 1068 170" />
+  <path class="line" d="M 885 365 C 982 376 1010 500 1068 510" />
+
+  <rect x="72" y="128" width="286" height="134" rx="18" fill="#FFFFFF" filter="url(#arch-shadow)" />
+  <text x="96" y="172" class="card-title">zenmind-app-server</text>
+  <text x="96" y="202" class="card-copy">Identity, OIDC, admin console</text>
+  <text x="96" y="226" class="card-copy">and app access tokens</text>
+
+  <rect x="72" y="458" width="286" height="134" rx="18" fill="#FFFFFF" filter="url(#arch-shadow)" />
+  <text x="96" y="502" class="card-title">agent-container-hub</text>
+  <text x="96" y="532" class="card-copy">Local sandbox sessions</text>
+  <text x="96" y="556" class="card-copy">and tool environments</text>
+
+  <rect x="922" y="128" width="286" height="134" rx="18" fill="#FFFFFF" filter="url(#arch-shadow)" />
+  <text x="946" y="172" class="card-title">agent-platform</text>
+  <text x="946" y="202" class="card-copy">Agent runtime, models, tools,</text>
+  <text x="946" y="226" class="card-copy">AGW UI, usage, sub-agents</text>
+
+  <rect x="922" y="458" width="286" height="134" rx="18" fill="#FFFFFF" filter="url(#arch-shadow)" />
+  <text x="946" y="502" class="card-title">agent-webclient</text>
+  <text x="946" y="532" class="card-copy">Chat, timeline, HITL, viewport,</text>
+  <text x="946" y="556" class="card-copy">model switch, usage display</text>
+
+  <rect x="468" y="540" width="376" height="62" rx="31" fill="#FFFFFF" stroke="#D5E5F3" stroke-width="1.5" />
+  <text x="505" y="577" class="card-title">Web and Mobile clients share AGW UI</text>
+</svg>
