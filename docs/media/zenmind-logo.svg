@@ -5,7 +5,7 @@
       <stop offset="50%" stop-color="#00A2FF" />
       <stop offset="100%" stop-color="#BB2BE2" />
     </linearGradient>
-    <mask id="mask-color-hollow" x="0" y="0" width="400" height="400" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
+    <mask id="hollow-color-mask" x="0" y="0" width="400" height="400" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
       <rect width="400" height="400" fill="white" />
       <g fill="black" transform="translate(0, -20)">
         <path d="M 120 135 Q 200 92 280 135 Q 200 132 120 135 Z" />
@@ -25,6 +25,6 @@
        A 90 90 0 0 1 306.091 93.841
        A 90 90 0 0 1 344.889 238.823 Z"
     fill="url(#blue-cyan-purple)"
-    mask="url(#mask-color-hollow)"
+    mask="url(#hollow-color-mask)"
   />
 </svg>

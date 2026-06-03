@@ -10,7 +10,11 @@
 
 ZenMind is a desktop-first AI agent platform for local, web, and mobile workflows.
 
-It packages the core agent runtime into one Desktop experience, connects to modern Chinese model ecosystems such as DeepSeek V4, MiMo, MiniMax M3, and Qwen/Bailian, and exposes a custom AGW UI protocol for rich agent interaction.
+It packages the core agent runtime into one Desktop experience, connects to modern Chinese model ecosystems such as DeepSeek V4 (`deepseek-v4-pro` and `deepseek-v4-flash`), MiMo, MiniMax M3, and Qwen/Bailian, and exposes a custom AGW UI protocol for rich agent interaction.
+
+## Website
+
+[www.zenmind.cc](https://www.zenmind.cc) provides official Desktop installers. You can also build ZenMind Desktop directly from this open-source project.
 
 ## About
 
@@ -19,10 +23,19 @@ ZenMind starts from a simple idea: the computer staying at home should become a 
 ## Highlights
 
 - One Desktop app to install, initialize, start, stop, and monitor the ZenMind services.
-- Native support direction for DeepSeek V4, MiMo, MiniMax M3, Qwen/Bailian, and MiniMax office workflows.
+- Native support direction for DeepSeek V4 (`deepseek-v4-pro` and `deepseek-v4-flash`), MiMo, MiniMax M3, Qwen/Bailian, and MiniMax office workflows.
 - A custom AGW UI protocol for streaming output, HITL approval, viewport rendering, usage telemetry, and sub-agent invocation.
 - A local sandbox layer for long-lived agent sessions, tool environments, and office/document automation.
 - Designed for the same agent experience across Desktop, web clients, and upcoming mobile clients.
+
+## Agent Configuration
+
+| Model | Context | Max thinking effort | Official DeepSeek API Docs pricing |
+| --- | --- | --- | --- |
+| `deepseek-v4-flash` | `maxInputTokens: 1048576` (1M context) | `reasoning_effort=max` | cache hit `$0.0028`, cache miss `$0.14`, output `$0.28` per 1M tokens |
+| `deepseek-v4-pro` | `maxInputTokens: 1048576` (1M context) | `reasoning_effort=max` | cache hit `$0.003625`, cache miss `$0.435`, output `$0.87` per 1M tokens |
+
+The runtime registry uses the current V4 model IDs, `maxOutputTokens: 393216`, and pricing fields for cache-hit input, cache-miss input, and output tokens. See [Model Support](./docs/models.md) for the verified field mapping.
 
 ## Demo Video
 
@@ -31,20 +44,20 @@ ZenMind starts from a simple idea: the computer staying at home should become a 
 ## Screenshots
 
 <div align="center">
-  <img src="./assets/screenshot-plan-approval.jpg" alt="ZenMind plan approval workflow" />
+  <img src="./docs/assets/screenshot-plan-approval.jpg" alt="ZenMind plan approval workflow" />
   <br />
   <br />
-  <img src="./assets/screenshot-deepseek-cache-hit.jpg" alt="ZenMind DeepSeek cache hit usage view" />
+  <img src="./docs/assets/screenshot-deepseek-cache-hit.jpg" alt="ZenMind DeepSeek cache hit usage view" />
   <br />
   <br />
-  <img src="./assets/screenshot-user-approval.jpg" alt="ZenMind user approval workflow" />
+  <img src="./docs/assets/screenshot-user-approval.jpg" alt="ZenMind user approval workflow" />
 </div>
 
 ## One-Click Desktop
 
 ZenMind is distributed through ZenMind Desktop. The Desktop app wraps the core services, prepares local configuration, starts the runtime in the right order, and gives users a single control center for the whole system.
 
-> Download placeholder: add the official Desktop release link here.
+Download the official installer from [www.zenmind.cc](https://www.zenmind.cc), or package it yourself from this open-source repository.
 
 ## Core Architecture
 
@@ -73,11 +86,11 @@ Read more in [AGW UI Protocol](./docs/agwui.md).
 
 ## Documentation
 
-- [Architecture](./docs/architecture.md)
 - [AGW UI Protocol](./docs/agwui.md)
-- [Model Support](./docs/models.md)
-- [Mobile Direction](./docs/mobile.md)
+- [Architecture](./docs/architecture.md)
 - [Docs Index](./docs/README.md)
+- [Mobile Direction](./docs/mobile.md)
+- [Model Support](./docs/models.md)
 
 ## License
 
